@@ -1,10 +1,14 @@
 ---
 title: "Dynamic Network Exploration"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
 ---
 
 
-# Exploratory Data Analysis of the Temporal Direct Network Data
+## Exploratory Data Analysis of the Temporal Direct Network Data
 
 ```{r setup, echo= FALSE, include = FALSE}
 setwd("C:\\Users\\octariar\\Documents\\arcane-temporal-network")
@@ -12,6 +16,8 @@ setwd("C:\\Users\\octariar\\Documents\\arcane-temporal-network")
 library(tidyverse)
 library(lubridate)
 library(ggplot2)
+library(igraph)
+
 options(scipen = 999)
 
 # Import the CSV datasets
@@ -25,7 +31,7 @@ weekly = read.csv(".\\Datasets\\hbn_direct_transfer_2024\\HBN_weekly_sliding_edg
 
 We are running exploratory data analyses of the French transfer networks. OUr data comes from the direct transfers of all France hospitals in 2024, all within a 7-day time frame aggregation within one year. Therefore, our first analysis would be a descriptive analyses of the basic network characteristics.
 
-## Weekly Transfer Window Data 
+### Weekly Transfer Window Data 
 
 Let's explore the direct transfers with 7-day (weekly) time window,starting for all year
 timespan. 
@@ -78,22 +84,21 @@ num_transfers_allyear
 df %>%  slice_max(weight, n=5)
 
 ```
-
-
-## Temporal Analysis of Trends by Weekly Time Window
+### Temporal Analysis of Trends by Weekly Time Window
 
 Looking at the averages and summary statistics trend for day-to-day trends to see the ups and downs 
 of the number of nodes, edges, transfers, and otehers
 
-```{weekly summary}
+```{r weekly summary, echo = FALSE}
+
 summary_stats <- df %>%
   group_by(weekly_window_number,window_start,  month, season) %>%
   summarise(
-    n_edges = n(),
-    n_nodes = n_distinct(c(finessGeo_origin, finessGeo_target)),
-    total_transfers = sum(weight),
-    mean_weight = mean(weight),
-    median_weight = median(weight),
+    n_edges = n(), #Number of edges
+    n_nodes = n_distinct(c(finessGeo_origin, finessGeo_target)), # Number of nodes
+    total_transfers = sum(weight), #Total transfers
+    mean_weight = mean(weight), # mean transfers
+    median_weight = median(weight), # median transfers 
     .groups = "drop"
   )
 
@@ -140,9 +145,20 @@ season_colors <- c(
 )
 
 metrics <- summary_stats %>%
-  select(-weekly_window_number, -season) %>%
+  select(-weekly_window_number, -season, -month, -window_start) %>%
   colnames()
 
+#Labeling each metrics for easier plot titling
+
+metric_labels = c (
+  n_edges = "Number of Edges - connections between hospitals",
+  n_nodes = "NUmber of Active Nodes",
+  total_transfers = "Transfers between hospitals",
+  mean_weight = "Mean number of transfers",
+  median_weight = "Median number of transfers",
+  density = "Temporal Network Density"
+  
+)
 
 # Make sure the folder exists
 if(!dir.exists("./Plots/")) dir.create("./Plots/")
@@ -150,28 +166,31 @@ if(!dir.exists("./Plots/")) dir.create("./Plots/")
 # Loop over metrics to create plots and save
 lapply(metrics, function(metric) {
   
-  p <- ggplot(summary_stats, 
-              aes(x = window_start,  # assuming this is a Date object
+   nice_label <- metric_labels[metric]
+   
+   p <- ggplot(summary_stats, 
+              aes(x = window_start,
                   y = .data[[metric]],
                   color = season,
                   group = 1)) +
     geom_line(linewidth = 0.5) +
     geom_point(size = 1) +
     scale_color_manual(values = season_colors) +
-    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") + # monthly x-axis
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
     labs(
-      title = paste("Weekly Trend of", metric),
+      title = paste("Weekly Trend of", nice_label),
       subtitle = "French Direct Transfer Data, 2024, Weekly Temporal Window", 
       x = "Month",
-      y = metric,
+      y = nice_label,
       color = "Season"
     ) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          element_title(hjust=.5))
+          plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5)
+          )
   
-  # Save as high-res JPEG (4 x 6 inches)
-  ggsave(
+   ggsave(
     filename = paste0("./Plots/", metric, ".jpeg"),
     plot = p,
     width = 6,
@@ -179,26 +198,69 @@ lapply(metrics, function(metric) {
     units = "in",
     dpi = 300
   )
-  print(p)
+  
   return(p)
 })
-
-
-
-
-
 ```
 
+### Calculate the centrality measures statistics for the network data
+
+```{r network stats}
+
+# Define a function to calculate network-level statistics
+calculate_network_metrics <- function(df) {
+  
+  # Initialize an empty list to store the results
+  results <- list()
+  
+  # Loop over each unique time window
+  for(t in unique(df$window_start)) {
+    
+    # Filter data for the current time window
+    time_df <- df %>% filter(window_start == t)
+    
+    # Create a directed graph for the current time window with edge weights
+    g <- graph_from_data_frame(time_df, directed = TRUE, vertices = NULL)
+    E(g)$weight <- time_df$weight  # Add the weight attribute to the edges
+    
+    # Calculate network-level metrics
+    network_stats <- data.frame(
+      time_window = as.Date(t),
+      num_nodes = vcount(g),
+      num_edges = ecount(g),
+      avg_degree = mean(degree(g)),
+      density = edge_density(g),
+      avg_path_length = tryCatch({
+        # Compute shortest path lengths (weighted)
+        sp_lengths <- shortest.paths(g, mode = "all", weights = E(g)$weight)
+        # Remove infinite distances (no path found)
+        sp_lengths[sp_lengths == Inf] <- NA
+        mean(sp_lengths, na.rm = TRUE)
+      }, error = function(e) NA),
+      clustering_coef = tryCatch({
+        # Compute local clustering coefficient for weighted directed graph
+        transitivity(g, type = "local", weights = E(g)$weight)
+      }, error = function(e) NA),
+      num_connected_components = components(g)$no
+    )
+    
+    # Store the results
+    results[[as.character(t)]] <- network_stats
+  }
+  
+  # Combine results for all time windows into one dataframe
+  final_results <- bind_rows(results)
+  
+  return(final_results)
+}
+
+# Run the function and get the network-level statistics
+network_metrics_df <- calculate_network_metrics(df)
 
 
-
-
-
-
-
-
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
-
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+#Export the dataset as result
+#
+# Make sure the folder exists
+if(!dir.exists("./Outputs/")) dir.create("./Outputs/")
+write.csv(network_metrics_df, file = "./Outputs/network_metrics_direct_weekly_2024.csv")
+```
