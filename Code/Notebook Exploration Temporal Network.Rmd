@@ -22,6 +22,8 @@ library(lubridate)
 library(ggplot2)
 library(igraph)
 library(here)
+library(purrr)     # map_dfr
+library(igraph) 
 
 options(scipen = 999)
 # Import the CSV datasets
@@ -37,13 +39,19 @@ We are running exploratory data analyses of the French transfer networks. OUr da
 Let's explore the direct transfers with 7-day (weekly) time window,starting for all year
 timespan. 
 
+```{r reading hospital data}
+
+#Available here: https://drees2-sgsocialgouv.opendatasoft.com/explore/dataset/708_bases-statistiques-sae/information/
+# CAPACT24 appears to refer to a capacity variable for full inpatient hospitalization, specifically the number of installed beds for hospitalisation complète (24 hours or more) in the relevant unit or activity table. The SAE variable list snippet for 2024 shows the label beginning with “Nombre de lits installés en hospitalisation complète…”, and the SAE documentation explains that the survey collects establishments’ capacities, activity, technical platforms, and staffing through thematic tables.
+capact24 <- read_delim(here("Datasets", "CAPACT_PM_PNM","Bases CSV", "capact24.csv"), 
+                         delim = ";", escape_double = FALSE, trim_ws = TRUE, 
+                        locale = locale(encoding = "Latin1"))
+#save capact into comma-separated CSV
+write.csv(capact24, file = here("Datasets", "CAPACT24.csv"))
+
+```
+
 ```{r weekly}
-
-# Explore the data structure
-# Let's make sure that the date span is from January to December.
-
-head(weekly)
-tail(weekly)
 
 #Assigning seasons to the data
 
@@ -135,7 +143,6 @@ summary_overall = summary_overall %>%
   ) 
 summary_overall = summary_overall[-c(1:4), ]
 
-
 # Plotting the Distribution of Transfers
 
 season_colors <- c(
@@ -208,11 +215,7 @@ lapply(metrics, function(metric) {
 
 ```{r network stats}
 # packages used
-library(dplyr)     # filter, group_by, summarise, arrange
-library(purrr)     # map_dfr
-library(igraph)    # graph_from_data_frame, degree, edge_density, distances, transitivity, components
-
-
+   # graph_from_data_frame, degree, edge_density, distances, transitivity, components
 calculate_network_metrics <- function(df) {
 
   df %>%
@@ -344,6 +347,92 @@ readRDS(here("Outputs", "network_metrics_df.rds"))
 nrow(network_metrics_df)
 dplyr::n_distinct(df$window_start)
 ```
+## Network metrics definitions (weighted, directed hospital transfer network)
+
+**Context (applies to all metrics):**
+Let (G_t = (V_t, E_t)) be the **directed, weighted** hospital transfer network for time window (t).
+
+* **Nodes** ((V_t)): hospitals (e.g., `finessGeo`).
+* **Edges** ((E_t)): directed transfers from origin (\rightarrow) target within the window.
+* **Edge weight** ((w_{ij,t})): number of transfers from hospital (i) to hospital (j) in window (t).
+* A “present” edge means (w_{ij,t} > 0).
+
+---
+
+### `n_nodes` — Number of active nodes
+
+**Definition:**
+[
+n_nodes(t) = |V_t|
+]
+**Interpretation:** Number of hospitals that appear in the network during window (t) (as an origin and/or target with at least one transfer).
+
+---
+
+### `n_edges` — Number of directed edges
+
+**Definition:**
+[
+n_edges(t) = |E_t|
+]
+where each directed pair ((i \rightarrow j)) with (w_{ij,t} > 0) counts as one edge.
+
+**Interpretation:** Number of distinct **origin → destination** transfer connections observed in window (t), regardless of volume.
+
+---
+
+### `total_transfers` — Total transfer volume (sum of weights)
+
+**Definition:**
+[
+total_transfers(t) = \sum_{(i \rightarrow j)\in E_t} w_{ij,t}
+]
+**Interpretation:** Total number of patient transfers captured in window (t) across all directed connections.
+
+---
+
+### `mean_weight` — Mean edge weight
+
+**Definition:**
+[
+mean_weight(t) = \frac{1}{|E_t|}\sum_{(i \rightarrow j)\in E_t} w_{ij,t}
+]
+**Interpretation:** Average number of transfers per observed directed connection in window (t). Higher values imply that, on average, connections carry heavier transfer traffic.
+
+---
+
+### `median_weight` — Median edge weight
+
+**Definition:** The median of the set ({w_{ij,t} : (i \rightarrow j)\in E_t}).
+
+**Interpretation:** Typical transfer volume per observed directed connection, less sensitive to extreme high-volume routes than `mean_weight`.
+
+---
+
+### `density` — Directed network density (unweighted definition)
+
+**Definition (standard directed density without self-loops):**
+[
+density(t) = \frac{|E_t|}{|V_t|,(|V_t|-1)}
+]
+**Interpretation:** Proportion of all possible directed hospital-to-hospital connections that are observed (have at least one transfer) in window (t).
+
+* Values near 0: sparse network (few observed routes).
+* Values near 1: highly connected network (many observed routes).
+
+**Note:** This density is **about presence/absence of edges**, not transfer volume. Even in a weighted network, density is usually defined on the binary graph.
+
+---
+
+### Optional clarifications (if you want to include in your Rmd)
+
+* **Directed:** (i \rightarrow j) is different from (j \rightarrow i).
+* **Weighted:** edges carry magnitudes (number of transfers).
+* **Active node:** a hospital with at least one incoming or outgoing transfer in that window.
+* **Edge counted once per pair per window:** multiple transfers on the same route contribute to the weight, not to additional edges.
+
+---
+
 
 ## Graphing all the Stats
 ```{r graph daybyday}
@@ -462,27 +551,8 @@ print(p)
 ## Visualizing Dynamic Temporal Networks 
 ```{r temporal network viz, include = FALSE}
 
-# 
-# library(tidyverse)   # dplyr
-# library(tidygraph)   # tbl_graph, activate
-# library(ggraph)      # ggraph
-# library(gganimate)   # transition_states, animate
-# library(igraph)      # as.igraph (optional)
-# library(grid)        # unit
-# library(here)        # here
-# # install.packages("av")
-# library(av) 
-# # df = your full edge list
-# # cols: finessGeo_origin, finessGeo_target, weight, window_start, window_end, weekly_window_number
-# 
-# df2 <- df %>%
-#   mutate(
-#     window_start = as.Date(window_start),
-#     window_end   = as.Date(window_end),
-#     weekly_window_number = as.integer(weekly_window_number)
-#   )
-# 
-# # 1) Unique windows
+
+# 1) Unique windows
 # windows <- df2 %>%
 #   distinct(weekly_window_number, window_start, window_end) %>%
 #   arrange(window_start)
@@ -511,86 +581,255 @@ print(p)
 #       "Week ", weekly_window_number, " (", window_start, " to ", window_end, ")"
 #     )
 #   )
-# # 4) Filter edges to only those sampled windows
+# 4) Filter edges to only those sampled windows
 # df_sampled <- df2 %>%
 #   inner_join(sampled_windows %>% select(weekly_window_number, week_label),
 #              by = "weekly_window_number")
+
+# ---- packages ----
+# library(tidyverse)   # dplyr, tibble, purrr
+# library(tidygraph)   # tbl_graph
+# library(ggraph)      # ggraph
+# library(gganimate)   # transition_states, animate
+# library(igraph)      # graph + layouts
+# library(grid)        # unit()
+# library(here)        # here()
+# library(av)          # av_renderer()
 # 
+# # ---- 0) Clean + type-stabilize ----
+# df2 <- df %>%
+#   mutate(
+#     window_start = as.Date(window_start),
+#     window_end   = as.Date(window_end),
+#     weekly_window_number = as.integer(weekly_window_number),
+#     weight = as.numeric(weight)
+#   ) %>%
+#   # guard against list-columns that can break tweening (order(ind) error)
+#   select(where(~ !is.list(.)))
 # 
-# # ---- Stable layout across all sampled windows ----
-# all_nodes <- df_sampled %>%
-#   select(name = finessGeo_origin) %>%
-#   bind_rows(df_sampled %>% select(name = finessGeo_target)) %>%
+# # ---- 1) Stable node set + stable layout ----
+# all_nodes <- df2 %>%
+#   transmute(name = finessGeo_origin) %>%
+#   bind_rows(df2 %>% transmute(name = finessGeo_target)) %>%
 #   distinct()
 # 
+# base_edges <- df2 %>%
+#   distinct(finessGeo_origin, finessGeo_target) %>%
+#   transmute(from = finessGeo_origin, to = finessGeo_target)
+# 
 # base_graph <- igraph::graph_from_data_frame(
-#   d = df_sampled %>% distinct(finessGeo_origin, finessGeo_target) %>%
-#     transmute(from = finessGeo_origin, to = finessGeo_target),
+#   d = base_edges,
 #   directed = TRUE,
 #   vertices = all_nodes
 # )
 # 
 # set.seed(1)
-# 
 # layout_tbl <- igraph::layout_with_fr(base_graph) %>%
 #   as_tibble(.name_repair = "minimal") %>%
 #   setNames(c("x", "y")) %>%
-#   bind_cols(all_nodes)
+#   bind_cols(all_nodes) %>%
+#   mutate(
+#     x = as.numeric(x),
+#     y = as.numeric(y)
+#   )
 # 
-# nodes_anim <- layout_tbl %>% transmute(name, x, y)
+# nodes_tbl <- layout_tbl %>%
+#   transmute(name, x, y)
 # 
-# edges_anim <- df_sampled %>%
+# # ---- 2) Edge data for animation (top N per frame) ----
+# edges_anim <- df2 %>%
 #   transmute(
 #     from = finessGeo_origin,
 #     to   = finessGeo_target,
 #     weight,
-#     week_label
+#     window_start
+#   ) %>%
+#   select(where(~ !is.list(.))) %>%
+#   mutate(
+#     from = as.character(from),
+#     to   = as.character(to),
+#     weight = as.numeric(weight),
+#     window_start = as.Date(window_start)
 #   )
 # 
-# # ---- 1) HARD CUT: keep only top N edges per frame (tune N = 50–300) ----
 # N_EDGES <- 150
 # 
-# edges_anim_fast2 <- edges_anim%>%
-#   group_by(week_label) %>%
+# edges_anim_fast2 <- edges_anim %>%
+#   group_by(window_start) %>%
 #   slice_max(order_by = weight, n = N_EDGES, with_ties = FALSE) %>%
 #   ungroup()
 # 
-# # IMPORTANT: rename edge columns to 'from'/'to' for tbl_graph
-# edges_tbl <- edges_anim_fast2 %>%
-#   transmute(
-#     from = from,
-#     to =to,
-#     weight,
-#     week_label
+# # ---- 3) Build tbl_graph ----
+# g_tbl <- tbl_graph(nodes = nodes_tbl, edges = edges_anim_fast2, directed = TRUE)
+# 
+# # ---- 4) IMPORTANT FIX: define a real state variable (week_label was undefined) ----
+# # Use window_start as state; create a readable label if you want.
+# g_tbl <- g_tbl %>%
+#   activate(edges) %>%
+#   mutate(
+#     state = window_start,
+#     state_label = format(window_start, "%Y-%m-%d")
 #   )
 # 
-# nodes_tbl <- nodes_anim %>%
-#   transmute(
-#     name,
-#     x, y
-#   )
-# 
-# # 2) Build tbl_graph (keeps edge attributes for animation)
-# g_tbl <- tbl_graph(nodes = nodes_tbl, edges = edges_tbl, directed = TRUE)
-# 
-# # 3) Plot: manual layout uses node x/y columns inside tbl_graph
+# # ---- 5) Plot + animation ----
 # p_fast <- ggraph(g_tbl, layout = "manual", x = x, y = y) +
-#   geom_edge_link(aes(width = weight), alpha = 0.6) +   # no arrows, no end_cap
+#   geom_edge_link(aes(width = weight), alpha = 0.6) +
 #   geom_node_point(size = 2.2) +
 #   scale_edge_width(range = c(0.1, 2.0)) +
 #   theme_void() +
-#   transition_states(week_label, transition_length = 1, state_length = 1) +
+#   transition_states(
+#     states = state,
+#     transition_length = 1,
+#     state_length = 1,
+#     wrap = FALSE
+#   ) +
+#   labs(title = "Window start: {closest_state}") +
 #   ease_aes("linear")
 # 
 # dir.create(here("Outputs"), showWarnings = FALSE, recursive = TRUE)
 # 
+# # render
 # anim <- animate(
 #   p_fast,
 #   nframes = 60,
 #   fps = 10,
-#   width = 550,
+#   width = 400,
 #   height = 400,
 #   renderer = av_renderer(here("Outputs", "network_fast.mp4"))
 # )
+# 
+# anim
+
+```
+
+
+```{r Visualize Year Aggregate}
+
+edges_year <- df %>%
+  transmute(
+    sender   = as.character(finessGeo_origin),
+    receiver = as.character(finessGeo_target),
+    weight   = as.numeric(weight)
+  ) %>%
+  filter(!is.na(sender), !is.na(receiver)) %>% 
+  group_by(sender,receiver) %>% 
+  summarise(
+    transfer = sum(weight)
+  )
+
+# packages
+library(tidyverse)        # dplyr, ggplot2, readr, etc.
+library(sf)               # spatial objects + plotting with coord_sf()
+library(rnaturalearth)    # country polygons
+library(rnaturalearthdata)# data backend for rnaturalearth
+
+#------------------------------------------------------------
+# 0) Inputs you must have
+#------------------------------------------------------------
+# df: transfer-level data with at least:
+#   finessGeo_origin, finessGeo_target, weight
+#
+# And coordinates for each node, either:
+#   A) already inside df as origin/target lat/lon columns, OR
+#   B) a node table you can derive from df, OR
+#   C) a separate file like /mnt/data/finessGeo_data.csv
+#
+# Below is the most common pattern (B/C): build a node table then join coords.
+
+# OPTIONAL (if you have a separate node/coord file)
+# nodes_geo <- readr::read_csv("/mnt/data/finessGeo_data.csv") %>%
+#   transmute(
+#     node = as.character(finessGeo),
+#     lon  = as.numeric(longitude),
+#     lat  = as.numeric(latitude)
+#   )
+
+#------------------------------------------------------------
+# 1) Aggregate transfers over the whole year (one edge per pair)
+#------------------------------------------------------------
+edges_year <- df %>%
+  transmute(
+    origin = as.character(finessGeo_origin),
+    target = as.character(finessGeo_target),
+    weight = as.numeric(weight)
+  ) %>%
+  filter(!is.na(origin), !is.na(target)) %>%
+  group_by(origin, target) %>%
+  summarise(weight = sum(weight, na.rm = TRUE), .groups = "drop")
+
+#------------------------------------------------------------
+# 2) Build node table WITH coordinates
+#    (edit the coord column names here to match your df)
+#------------------------------------------------------------
+# If df already has coords for each node (commonly repeated per row),
+# create a unique node table from df.
+nodes_geo <- df %>%
+  # CHANGE these to your real column names in df:
+  transmute(
+    node = as.character(finessGeo),   # or origin/target node id column you have
+    lon  = as.numeric(lon),           # longitude column in df
+    lat  = as.numeric(lat)            # latitude column in df
+  ) %>%
+  filter(!is.na(node), !is.na(lon), !is.na(lat)) %>%
+  distinct(node, lon, lat)
+
+# If instead your coords live in separate columns for origin/target inside df,
+# comment the block above and use this pattern:
+# nodes_geo <- bind_rows(
+#   df %>% transmute(node = as.character(finessGeo_origin),
+#                    lon = as.numeric(origin_lon),
+#                    lat = as.numeric(origin_lat)),
+#   df %>% transmute(node = as.character(finessGeo_target),
+#                    lon = as.numeric(target_lon),
+#                    lat = as.numeric(target_lat))
+# ) %>% filter(!is.na(node), !is.na(lon), !is.na(lat)) %>% distinct()
+
+#------------------------------------------------------------
+# 3) Join coords to edges (origin + target)
+#------------------------------------------------------------
+edges_geo <- edges_year %>%
+  left_join(nodes_geo %>% rename(origin = node, o_lon = lon, o_lat = lat), by = "origin") %>%
+  left_join(nodes_geo %>% rename(target = node, t_lon = lon, t_lat = lat), by = "target") %>%
+  filter(!is.na(o_lon), !is.na(o_lat), !is.na(t_lon), !is.na(t_lat))
+
+#------------------------------------------------------------
+# 4) Get France map polygon (mainland + Corsica in one)
+#------------------------------------------------------------
+fr <- rnaturalearth::ne_countries(country = "France", returnclass = "sf") %>%
+  st_transform(4326)  # lon/lat
+
+#------------------------------------------------------------
+# 5) (Highly recommended) Reduce clutter: keep strongest edges
+#------------------------------------------------------------
+edges_plot <- edges_geo %>%
+  filter(weight > 0) %>%
+  mutate(weight_scaled = log10(weight + 1)) %>%   # smoother scaling
+  slice_max(order_by = weight, n = 2000)          # adjust: 300–5000
+
+#------------------------------------------------------------
+# 6) Plot: network on France map
+#------------------------------------------------------------
+ggplot() +
+  geom_sf(data = fr, linewidth = 0.3) +
+  geom_curve(
+    data = edges_plot,
+    aes(x = o_lon, y = o_lat, xend = t_lon, yend = t_lat,
+        linewidth = weight_scaled),
+    curvature = 0.15,
+    alpha = 0.15
+  ) +
+  geom_point(
+    data = nodes_geo,
+    aes(x = lon, y = lat),
+    size = 0.6,
+    alpha = 0.6
+  ) +
+  coord_sf(xlim = c(-5.5, 9.8), ylim = c(41.0, 51.6), expand = FALSE) +
+  scale_linewidth_continuous(range = c(0.1, 1.2)) +
+  theme_void() +
+  theme(legend.position = "right") +
+  labs(linewidth = "log10(total transfers + 1)")
+
+
 
 ```
