@@ -1,0 +1,945 @@
+---
+title: "Dynamic Network Exploration"
+output:
+  html_document:
+    df_print: paged
+    mathjax: default
+---
+
+---
+title: "Math Test"
+output:
+  html_document:
+    mathjax: default
+---
+
+
+## Exploratory Data Analysis of the Temporal Direct Network Data
+
+```{r setup, echo= FALSE, include = FALSE}
+
+# FIRST: MAKE SURE YOU OPEN THIS CODE FROM THE ARCANE-TEMPORAL-NETWORK PROJECT
+# SECOND: make sure you download  the transfer datasets here #https://ehespfr-my.sharepoint.com/personal/shrichand_bhuria_ehesp_fr/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fshrichand%5Fbhuria%5Fehesp%5Ffr%2FDocuments%2FHBN%5F2024%5Fdata%5Fsharing&ga=1 
+
+# Download it into the Datasets folder. I can't sync it into GitHub because the files were too large
+# Loading libraries
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(igraph)
+library(here)
+library(purrr)     # map_dfr
+library(igraph) 
+
+options(scipen = 999)
+# Import the CSV datasets
+# Importing from WINDOWS
+monthly = read_csv(here("Datasets", "hbn_direct_transfer_2024","HBN_monthly_sliding_edgelist_2024.csv" ))
+weekly = read_csv(here("Datasets", "hbn_direct_transfer_2024","HBN_weekly_sliding_edgelist_2024.csv" ))
+```
+
+We are running exploratory data analyses of the French transfer networks. OUr data comes from the direct transfers of all France hospitals in 2024, all within a 7-day time frame aggregation within one year. Therefore, our first analysis would be a descriptive analyses of the basic network characteristics.
+
+### Weekly Transfer Window Data 
+
+Let's explore the direct transfers with 7-day (weekly) time window,starting for all year
+timespan. 
+
+```{r reading hospital data}
+
+#Available here: https://drees2-sgsocialgouv.opendatasoft.com/explore/dataset/708_bases-statistiques-sae/information/
+# CAPACT24 appears to refer to a capacity variable for full inpatient hospitalization, specifically the number of installed beds for hospitalisation complète (24 hours or more) in the relevant unit or activity table. The SAE variable list snippet for 2024 shows the label beginning with “Nombre de lits installés en hospitalisation complète…”, and the SAE documentation explains that the survey collects establishments’ capacities, activity, technical platforms, and staffing through thematic tables.
+
+capact24 <- read_delim(here("Datasets", "CAPACT_PM_PNM","Bases CSV", "capact24.csv"), 
+                         delim = ";", escape_double = FALSE, trim_ws = TRUE, 
+                        locale = locale(encoding = "Latin1"))  #so it can read French vocals
+#save capact into comma-separated CSV
+write.csv(capact24, file = here("Datasets", "CAPACT24.csv"))
+
+#Reading in Finess Georgaphical Coords data
+finess_geo = read.csv(here("Datasets", "finessGeo_data.csv"))
+head(finess_geo)
+```
+
+```{r weekly, echo = FALSE, warning = FALSE}
+# Packages
+library(dplyr)
+library(lubridate)
+library(tibble)
+
+summarize_transfer_network <- function(data, output_name = NULL, unique_edges = TRUE) {
+  
+  summary_df <- data %>%
+    mutate(
+      window_start = as.Date(window_start),
+      month = month(window_start),
+      season = case_when(
+        month %in% c(12, 1, 2)  ~ "Winter",
+        month %in% c(3, 4, 5)   ~ "Spring",
+        month %in% c(6, 7, 8)   ~ "Summer",
+        month %in% c(9, 10, 11) ~ "Autumn",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    group_by(window_start, month, season) %>%
+    summarise(
+      n_edges = if (unique_edges) {
+        n_distinct(paste(finessGeo_origin, finessGeo_target, sep = "_"))
+      } else {
+        n()
+      },
+      n_senders = n_distinct(finessGeo_origin),
+      n_receivers = n_distinct(finessGeo_target),
+      n_nodes = n_distinct(c(finessGeo_origin, finessGeo_target)),
+      total_transfers = sum(weight, na.rm = TRUE),
+      mean_transfers = mean(weight, na.rm = TRUE),
+      median_transfers = median(weight, na.rm = TRUE),
+      min_transfers = min(weight, na.rm = TRUE),
+      max_transfers = max(weight, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(window_start)
+  
+  if (!is.null(output_name)) {
+    assign(output_name, summary_df, envir = .GlobalEnv)
+  }
+  
+  return(summary_df)
+}
+
+weekly1  <- summarize_transfer_network(weekly,  output_name = "summary_weekly",  unique_edges = TRUE)
+monthly1 <- summarize_transfer_network(monthly, output_name = "summary_monthly", unique_edges = TRUE)
+```
+### Temporal Analysis of Trends by Weekly Time Window
+
+Looking at the averages and summary statistics trend for day-to-day trends to see the ups and downs 
+of the number of nodes, edges, transfers, and otehers
+
+```{r weekly summary, echo = FALSE}
+library(rlang)
+
+make_summary_stats <- function(data,
+                               window_id,
+                               end_date = "2024-12-31",
+                               min_remaining_days = 7) {
+  
+  window_id <- enquo(window_id)
+  
+  summary_stats <- data %>%
+    mutate(
+      window_start = as.Date(window_start),
+      month = lubridate::month(window_start),
+      season = dplyr::case_when(
+        month %in% c(12, 1, 2)  ~ "Winter",
+        month %in% c(3, 4, 5)   ~ "Spring",
+        month %in% c(6, 7, 8)   ~ "Summer",
+        month %in% c(9, 10, 11) ~ "Autumn"
+      )
+    ) %>%
+    group_by(!!window_id, window_start, month, season) %>%
+    summarise(
+      n_edges = n(),
+      n_nodes = n_distinct(c(finessGeo_origin, finessGeo_target)),
+      total_transfers = sum(weight, na.rm = TRUE),
+      mean_weight = mean(weight, na.rm = TRUE),
+      median_weight = median(weight, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      density = n_edges / (n_nodes * (n_nodes - 1))
+    ) %>%
+    filter(as.Date(end_date) - window_start >= min_remaining_days)
+  
+  return(summary_stats)
+}
+
+make_summary_overall <- function(summary_data, id_col) {
+  
+  id_col <- enquo(id_col)
+  
+  summary_overall <- summary_data %>%
+    select(-!!id_col, -window_start, -month, -season) %>%
+    summarise(
+      across(
+        where(is.numeric),
+        list(
+          mean = ~ mean(.x, na.rm = TRUE),
+          min = ~ min(.x, na.rm = TRUE),
+          max = ~ max(.x, na.rm = TRUE),
+          median = ~ median(.x, na.rm = TRUE)
+        ),
+        .names = "{.col}_{.fn}"
+      )
+    ) %>%
+    pivot_longer(
+      cols = everything(),
+      names_to = "metric",
+      values_to = "value"
+    )
+  
+  return(summary_overall)
+}
+
+season_colors <- c(
+  "Winter" = "#1f78b4",
+  "Spring" = "#33a02c",
+  "Summer" = "#ff7f00",
+  "Autumn" = "#e31a1c"
+)
+
+metric_labels <- c(
+  n_edges = "Number of Edges - connections between hospitals",
+  n_nodes = "Number of Active Nodes",
+  total_transfers = "Transfers between hospitals",
+  mean_weight = "Mean number of transfers",
+  median_weight = "Median number of transfers",
+  density = "Temporal Network Density"
+)
+
+plot_summary_metrics <- function(summary_data,
+                                 id_col,
+                                 period_label = "Weekly",
+                                 output_prefix = "weekly",
+                                 output_folder = "Plots") {
+  
+  id_col <- enquo(id_col)
+  
+  metrics <- summary_data %>%
+    select(-!!id_col, -season, -month, -window_start) %>%
+    colnames()
+  
+  if (!dir.exists(here::here(output_folder))) {
+    dir.create(here::here(output_folder), recursive = TRUE)
+  }
+  
+  plot_list <- lapply(metrics, function(metric) {
+    
+    nice_label <- metric_labels[[metric]]
+    
+    p <- ggplot(
+      summary_data,
+      aes(
+        x = window_start,
+        y = .data[[metric]],
+        color = season,
+        group = 1
+      )
+    ) +
+      geom_line(linewidth = 0.5) +
+      geom_point(size = 1) +
+      scale_color_manual(values = season_colors) +
+      scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+      labs(
+        title = paste(period_label, "Trend of", nice_label),
+        subtitle = paste(
+          "French Direct Transfer Data, 2024,",
+          period_label,
+          "Temporal Window"
+        ),
+        x = "Month",
+        y = nice_label,
+        color = "Season"
+      ) +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)
+      )
+    
+    ggsave(
+      filename = here::here(output_folder, paste0(output_prefix, "_", metric, ".jpeg")),
+      plot = p,
+      width = 6,
+      height = 4,
+      units = "in",
+      dpi = 300
+    )
+    
+    return(p)
+  })
+  
+  names(plot_list) <- metrics
+  return(plot_list)
+}
+
+# Run for weekly
+summary_weekly <- make_summary_stats(
+  data = weekly,
+  window_id = weekly_window_number
+)
+
+overall_weekly <- make_summary_overall(
+  summary_data = summary_weekly,
+  id_col = weekly_window_number
+)
+
+plots_weekly <- plot_summary_metrics(
+  summary_data = summary_weekly,
+  id_col = weekly_window_number,
+  period_label = "Weekly",
+  output_prefix = "weekly"
+)
+
+# Run for monthly
+summary_monthly <- make_summary_stats(
+  data = monthly,
+  window_id = monthly_window_number
+)
+
+overall_monthly <- make_summary_overall(
+  summary_data = summary_monthly,
+  id_col = monthly_window_number
+)
+
+plots_monthly <- plot_summary_metrics(
+  summary_data = summary_monthly,
+  id_col = monthly_window_number,
+  period_label = "Monthly",
+  output_prefix = "monthly"
+)
+```
+
+### Calculate the centrality measures statistics for the network data
+
+```{r network stats, include = FALSE}
+# packages used
+   # graph_from_data_frame, degree, edge_density, distances, transitivity, components
+calculate_network_metrics <- function(df) {
+
+  df %>%
+    mutate(
+      window_start = as.Date(window_start),
+      weight = as.numeric(weight)
+    ) %>%
+    group_by(window_start) %>%
+    group_split() %>%
+    map_dfr(function(time_df) {
+
+      g <- igraph::graph_from_data_frame(
+        d = time_df %>% dplyr::select(finessGeo_origin, finessGeo_target, weight),
+        directed = TRUE,
+        vertices = NULL
+      )
+
+      # ---------- helper: weighted mean distance (finite, excluding zeros) ----------
+      avg_path_length <- tryCatch({
+        dmat <- igraph::distances(g, mode = "all", weights = igraph::E(g)$weight)
+        dvec <- as.vector(dmat)
+        dvec <- dvec[is.finite(dvec) & dvec > 0]
+        if (length(dvec) == 0) NA_real_ else mean(dvec)
+      }, error = function(e) NA_real_)
+
+      # ---------- clustering / transitivity (single scalars) ----------
+      trans_global <- tryCatch(
+        igraph::transitivity(g, type = "global"),
+        error = function(e) NA_real_
+      )
+
+      local_clust <- tryCatch(
+        igraph::transitivity(g, type = "local", isolates = "zero"),
+        error = function(e) rep(NA_real_, igraph::vcount(g))
+      )
+      trans_local_mean <- mean(local_clust, na.rm = TRUE)
+      trans_local_median <- stats::median(local_clust, na.rm = TRUE)
+
+      # ---------- reciprocity (directed) ----------
+      reciprocity <- tryCatch(
+        igraph::reciprocity(g, ignore.loops = TRUE),
+        error = function(e) NA_real_
+      )
+
+      # ---------- components ----------
+      n_comp_weak <- igraph::components(g, mode = "weak")$no
+      n_comp_strong <- igraph::components(g, mode = "strong")$no
+
+      # ---------- degree / strength summaries ----------
+      deg_in  <- igraph::degree(g, mode = "in")
+      deg_out <- igraph::degree(g, mode = "out")
+      str_in  <- igraph::strength(g, mode = "in",  weights = igraph::E(g)$weight)
+      str_out <- igraph::strength(g, mode = "out", weights = igraph::E(g)$weight)
+
+      # ---------- centralization ----------
+      cent_in  <- tryCatch(igraph::centr_degree(g, mode = "in",  normalized = TRUE)$centralization,
+                           error = function(e) NA_real_)
+      cent_out <- tryCatch(igraph::centr_degree(g, mode = "out", normalized = TRUE)$centralization,
+                           error = function(e) NA_real_)
+
+      # ---------- diameter (finite) ----------
+      diameter_w <- tryCatch({
+        dmat <- igraph::distances(g, mode = "all", weights = igraph::E(g)$weight)
+        max(dmat[is.finite(dmat)], na.rm = TRUE)
+      }, error = function(e) NA_real_)
+
+      # ---------- assortativity by degree (directed) ----------
+      assort_deg <- tryCatch(
+        igraph::assortativity_degree(g, directed = TRUE),
+        error = function(e) NA_real_
+      )
+
+      # ---------- Burt constraint (mean) ----------
+      constraint_mean <- tryCatch(
+        mean(igraph::constraint(g), na.rm = TRUE),
+        error = function(e) NA_real_
+      )
+
+      tibble(
+        time_window = unique(time_df$window_start),
+
+        # size
+        num_nodes = igraph::vcount(g),
+        num_edges = igraph::ecount(g),
+
+        # density / connectivity
+        density = igraph::edge_density(g),
+        num_connected_components_weak = n_comp_weak,
+        num_connected_components_strong = n_comp_strong,
+        reciprocity = reciprocity,
+
+        # degrees
+        avg_degree_total = mean(igraph::degree(g)),
+        avg_degree_in = mean(deg_in),
+        avg_degree_out = mean(deg_out),
+        max_degree_in = max(deg_in, na.rm = TRUE),
+        max_degree_out = max(deg_out, na.rm = TRUE),
+
+        # strengths (weighted degrees)
+        avg_strength_in = mean(str_in, na.rm = TRUE),
+        avg_strength_out = mean(str_out, na.rm = TRUE),
+        max_strength_in = max(str_in, na.rm = TRUE),
+        max_strength_out = max(str_out, na.rm = TRUE),
+
+        # paths
+        avg_path_length = avg_path_length,
+        diameter_weighted = diameter_w,
+
+        # transitivity / clustering
+        transitivity_global = trans_global,
+        transitivity_local_mean = trans_local_mean,
+        transitivity_local_median = trans_local_median,
+
+        # centralization / structure
+        degree_centralization_in = cent_in,
+        degree_centralization_out = cent_out,
+        assortativity_degree = assort_deg,
+        constraint_mean = constraint_mean
+      )
+    }) %>%
+    arrange(time_window)
+}
+#These two lines run the function but it runs very slowly 
+#therefore, it is commented out and instead i am saving it as rds and load it from the dataset
+
+# network_metrics_weekly <- calculate_network_metrics(weekly)
+# network_metrics_monthly <- calculate_network_metrics(monthly)
+
+# saveRDS(network_metrics_weekly, file = here("Outputs", "network_metrics_weekly.rds"))
+# saveRDS(network_metrics_monthly, file = here("Outputs", "network_metrics_monthly.rds"))
+
+#runnin
+network_metrics_weekly =  readRDS(here("Outputs", "network_metrics_weekly.rds"))
+network_metrics_monthly = readRDS(here("Outputs", "network_metrics_monthly.rds"))
+```
+
+## Network metrics definitions (weighted, directed hospital transfer network)
+Let $G_t = (V_t, E_t)$ be the **directed, weighted** hospital transfer network for time window $t$.
+
+- **Nodes** ($V_t$): hospitals (e.g., `finessGeo`)
+- **Edges** ($E_t$): directed transfers from origin $\rightarrow$ target within the window
+- **Edge weight** ($w_{ij,t}$): number of transfers from hospital $i$ to hospital $j$ in window $t$
+- A “present” edge means $w_{ij,t} > 0$
+
+---
+
+## `n_nodes` — Number of active nodes
+
+**Definition:**
+
+$$
+n_{nodes}(t) = \left|V_t\right|
+$$
+
+**Interpretation:** Number of hospitals that appear in the network during window $t$ as an origin and/or target with at least one transfer.
+
+---
+
+## `n_edges` — Number of directed edges
+
+**Definition:**
+
+$$
+n_{edges}(t) = \left|E_t\right|
+$$
+
+where each directed pair $(i \rightarrow j)$ with $w_{ij,t} > 0$ counts as one edge.
+
+**Interpretation:** Number of distinct **origin $\rightarrow$ destination** transfer connections observed in window $t$, regardless of volume.
+
+---
+
+## `total_transfers` — Total transfer volume (sum of weights)
+
+**Definition:**
+
+$$
+\mathrm{total\_transfers}(t) = \sum_{(i \rightarrow j)\in E_t} w_{ij,t}
+$$
+
+**Interpretation:** Total number of patient transfers captured in window $t$ across all directed connections.
+
+---
+
+## `mean_weight` — Mean edge weight
+
+**Definition:**
+
+$$
+\mathrm{mean\_weight}(t) = \frac{1}{\left|E_t\right|}\sum_{(i \rightarrow j)\in E_t} w_{ij,t}
+$$
+
+**Interpretation:** Average number of transfers per observed directed connection in window $t$. Higher values imply that, on average, connections carry heavier transfer traffic.
+
+---
+
+## `median_weight` — Median edge weight
+
+**Definition:**
+
+The median of the set
+
+$$
+\left\{ w_{ij,t} : (i \rightarrow j)\in E_t \right\}.
+$$
+
+**Interpretation:** Typical transfer volume per observed directed connection, less sensitive to extreme high-volume routes than `mean_weight`.
+
+---
+
+## `density` — Directed network density (unweighted definition)
+
+**Definition** (standard directed density without self-loops):
+
+$$
+\mathrm{density}(t) = \frac{\left|E_t\right|}{\left|V_t\right|\left(\left|V_t\right|-1\right)}
+$$
+
+**Interpretation:** Proportion of all possible directed hospital-to-hospital connections that are observed (have at least one transfer) in window $t$.
+
+- Values near 0: sparse network (few observed routes)
+- Values near 1: highly connected network (many observed routes)
+
+**Note:** This density is **about presence/absence of edges**, not transfer volume. Even in a weighted network, density is usually defined on the binary graph.
+
+---
+
+## Optional clarifications
+
+- **Directed:** $(i \rightarrow j)$ is different from $(j \rightarrow i)$
+- **Weighted:** edges carry magnitudes (number of transfers)
+- **Active node:** a hospital with at least one incoming or outgoing transfer in that window
+- **Edge counted once per pair per window:** multiple transfers on the same route contribute to the weight, not to additional edges
+
+
+
+## Graphing all the Stats
+```{r graph daybyday}
+# packages used
+library(dplyr)      # select, mutate, arrange, filter
+library(tidyr)      # pivot_longer
+library(ggplot2)    # ggplot, geoms, scales, theme
+library(here)       # here()
+library(purrr)      # walk
+
+season_colors <- c(
+  "Winter" = "#1f78b4",
+  "Spring" = "#33a02c",
+  "Summer" = "#ff7f00",
+  "Autumn" = "#e31a1c"
+)
+
+metric_labels <- c(
+  num_nodes = "Number of active nodes",
+  num_edges = "Number of edges",
+  density = "Edge density",
+  num_connected_components_weak = "Connected components (weak)",
+  num_connected_components_strong = "Connected components (strong)",
+  reciprocity = "Reciprocity",
+  avg_degree_total = "Average degree (total)",
+  avg_degree_in = "Average in-degree",
+  avg_degree_out = "Average out-degree",
+  max_degree_in = "Max in-degree",
+  max_degree_out = "Max out-degree",
+  avg_strength_in = "Average in-strength (weighted)",
+  avg_strength_out = "Average out-strength (weighted)",
+  max_strength_in = "Max in-strength (weighted)",
+  max_strength_out = "Max out-strength (weighted)",
+  avg_path_length = "Average shortest-path length (weighted)",
+  diameter_weighted = "Network diameter (weighted)",
+  transitivity_global = "Transitivity (global)",
+  transitivity_local_mean = "Transitivity (mean local)",
+  transitivity_local_median = "Transitivity (median local)",
+  degree_centralization_in = "Degree centralization (in)",
+  degree_centralization_out = "Degree centralization (out)",
+  assortativity_degree = "Assortativity by degree",
+  constraint_mean = "Burt constraint (mean)"
+)
+
+plot_network_summary_metrics <- function(data,
+                                         period_label = "Weekly",
+                                         date_col = "time_window",
+                                         output_prefix = "weekly",
+                                         output_folder = "Plots") {
+  
+  plot_df <- data %>%
+    mutate(
+      !!date_col := as.Date(.data[[date_col]]),
+      season = case_when(
+        format(.data[[date_col]], "%m") %in% c("12", "01", "02") ~ "Winter",
+        format(.data[[date_col]], "%m") %in% c("03", "04", "05") ~ "Spring",
+        format(.data[[date_col]], "%m") %in% c("06", "07", "08") ~ "Summer",
+        TRUE ~ "Autumn"
+      ),
+      season = factor(season, levels = c("Winter", "Spring", "Summer", "Autumn"))
+    ) %>%
+    arrange(.data[[date_col]])
+  
+  metrics_to_plot <- intersect(names(metric_labels), names(plot_df))
+  
+  plots_dir <- here::here(output_folder)
+  if (!dir.exists(plots_dir)) {
+    dir.create(plots_dir, recursive = TRUE)
+  }
+  
+  plot_long <- plot_df %>%
+    select(all_of(date_col), season, all_of(metrics_to_plot)) %>%
+    pivot_longer(
+      cols = all_of(metrics_to_plot),
+      names_to = "metric",
+      values_to = "value"
+    ) %>%
+    mutate(
+      metric_label = unname(metric_labels[metric])
+    )
+  
+  plot_list <- list()
+  
+  purrr::walk(unique(plot_long$metric), function(m) {
+    
+    tmp <- plot_long %>% filter(metric == m)
+    nice_label <- unique(tmp$metric_label)
+    
+    p <- ggplot(
+      tmp,
+      aes(
+        x = .data[[date_col]],
+        y = value,
+        color = season,
+        group = 1
+      )
+    ) +
+      geom_line(linewidth = 0.5, na.rm = TRUE) +
+      geom_point(size = 1, na.rm = TRUE) +
+      scale_color_manual(values = season_colors, drop = FALSE) +
+      scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+      labs(
+        title = paste( "Daily Trend of", nice_label),
+        subtitle = paste(
+          "French Direct Transfer Data, 2024,",
+          period_label,
+          "Temporal Window"
+        ),
+        x = "Month",
+        y = nice_label,
+        color = "Season"
+      ) +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)
+      )
+    
+    print(p)
+    
+    ggsave(
+      filename = file.path(plots_dir, paste0(output_prefix, "_", m, ".jpeg")),
+      plot = p,
+      width = 6,
+      height = 4,
+      units = "in",
+      dpi = 300
+    )
+    
+    plot_list[[m]] <<- p
+  })
+  
+  return(plot_list)
+}
+plots_network_weekly <- plot_network_summary_metrics(
+  data = network_metrics_weekly,
+  period_label = "Weekly",
+  date_col = "time_window",
+  output_prefix = "weekly"
+)
+
+plots_network_monthly <- plot_network_summary_metrics(
+  data = network_metrics_monthly,
+  period_label = "Monthly",
+  date_col = "time_window",
+  output_prefix = "monthly"
+)
+
+
+```
+
+## Visualizing Dynamic Temporal Networks 
+```{r temporal network viz, include = FALSE}
+# 1) Unique windows
+# windows <- df2 %>%
+#   distinct(weekly_window_number, window_start, window_end) %>%
+#   arrange(window_start)
+# 
+# # 2) Create a 7-day grid over window_start range
+# grid <- tibble(
+#   grid_date = seq(min(windows$window_start), max(windows$window_start), by = "7 days")
+# )
+# 
+# # 3) For each grid_date, pick the nearest window_start (stable and deterministic)
+# sampled_windows <- grid %>%
+#   mutate(
+#     weekly_window_number = map_int(
+#       grid_date,
+#       ~ windows %>%
+#         mutate(dist = abs(as.numeric(window_start - .x))) %>%
+#         slice_min(dist, with_ties = FALSE) %>%
+#         pull(weekly_window_number)
+#     )
+#   ) %>%
+#   left_join(windows, by = "weekly_window_number") %>%
+#   distinct(weekly_window_number, window_start, window_end) %>%
+#   arrange(window_start) %>%
+#   mutate(
+#     week_label = paste0(
+#       "Week ", weekly_window_number, " (", window_start, " to ", window_end, ")"
+#     )
+#   )
+# 4) Filter edges to only those sampled windows
+# df_sampled <- df2 %>%
+#   inner_join(sampled_windows %>% select(weekly_window_number, week_label),
+#              by = "weekly_window_number")
+
+# ---- packages ----
+# library(tidyverse)   # dplyr, tibble, purrr
+# library(tidygraph)   # tbl_graph
+# library(ggraph)      # ggraph
+# library(gganimate)   # transition_states, animate
+# library(igraph)      # graph + layouts
+# library(grid)        # unit()
+# library(here)        # here()
+# library(av)          # av_renderer()
+# 
+# # ---- 0) Clean + type-stabilize ----
+# df2 <- df %>%
+#   mutate(
+#     window_start = as.Date(window_start),
+#     window_end   = as.Date(window_end),
+#     weekly_window_number = as.integer(weekly_window_number),
+#     weight = as.numeric(weight)
+#   ) %>%
+#   # guard against list-columns that can break tweening (order(ind) error)
+#   select(where(~ !is.list(.)))
+# 
+# # ---- 1) Stable node set + stable layout ----
+# all_nodes <- df2 %>%
+#   transmute(name = finessGeo_origin) %>%
+#   bind_rows(df2 %>% transmute(name = finessGeo_target)) %>%
+#   distinct()
+# 
+# base_edges <- df2 %>%
+#   distinct(finessGeo_origin, finessGeo_target) %>%
+#   transmute(from = finessGeo_origin, to = finessGeo_target)
+# 
+# base_graph <- igraph::graph_from_data_frame(
+#   d = base_edges,
+#   directed = TRUE,
+#   vertices = all_nodes
+# )
+# 
+# set.seed(1)
+# layout_tbl <- igraph::layout_with_fr(base_graph) %>%
+#   as_tibble(.name_repair = "minimal") %>%
+#   setNames(c("x", "y")) %>%
+#   bind_cols(all_nodes) %>%
+#   mutate(
+#     x = as.numeric(x),
+#     y = as.numeric(y)
+#   )
+# 
+# nodes_tbl <- layout_tbl %>%
+#   transmute(name, x, y)
+# 
+# # ---- 2) Edge data for animation (top N per frame) ----
+# edges_anim <- df2 %>%
+#   transmute(
+#     from = finessGeo_origin,
+#     to   = finessGeo_target,
+#     weight,
+#     window_start
+#   ) %>%
+#   select(where(~ !is.list(.))) %>%
+#   mutate(
+#     from = as.character(from),
+#     to   = as.character(to),
+#     weight = as.numeric(weight),
+#     window_start = as.Date(window_start)
+#   )
+# 
+# N_EDGES <- 150
+# 
+# edges_anim_fast2 <- edges_anim %>%
+#   group_by(window_start) %>%
+#   slice_max(order_by = weight, n = N_EDGES, with_ties = FALSE) %>%
+#   ungroup()
+# 
+# # ---- 3) Build tbl_graph ----
+# g_tbl <- tbl_graph(nodes = nodes_tbl, edges = edges_anim_fast2, directed = TRUE)
+# 
+# # ---- 4) IMPORTANT FIX: define a real state variable (week_label was undefined) ----
+# # Use window_start as state; create a readable label if you want.
+# g_tbl <- g_tbl %>%
+#   activate(edges) %>%
+#   mutate(
+#     state = window_start,
+#     state_label = format(window_start, "%Y-%m-%d")
+#   )
+# 
+# # ---- 5) Plot + animation ----
+# p_fast <- ggraph(g_tbl, layout = "manual", x = x, y = y) +
+#   geom_edge_link(aes(width = weight), alpha = 0.6) +
+#   geom_node_point(size = 2.2) +
+#   scale_edge_width(range = c(0.1, 2.0)) +
+#   theme_void() +
+#   transition_states(
+#     states = state,
+#     transition_length = 1,
+#     state_length = 1,
+#     wrap = FALSE
+#   ) +
+#   labs(title = "Window start: {closest_state}") +
+#   ease_aes("linear")
+# 
+# dir.create(here("Outputs"), showWarnings = FALSE, recursive = TRUE)
+# 
+# # render
+# anim <- animate(
+#   p_fast,
+#   nframes = 60,
+#   fps = 10,
+#   width = 400,
+#   height = 400,
+#   renderer = av_renderer(here("Outputs", "network_fast.mp4"))
+# )
+# 
+# anim
+
+```
+
+
+```{r Visualize Year Aggregate, include = FALSE}
+
+
+# packages
+library(tidyverse)        # dplyr, ggplot2, readr, etc.
+library(sf)               # spatial objects + plotting with coord_sf()
+library(rnaturalearth)    # country polygons
+library(rnaturalearthdata)# data backend for rnaturalearth
+
+#------------------------------------------------------------
+# 1) Aggregate transfers over the whole year (one edge per pair)
+#------------------------------------------------------------
+
+edge_year_weekly <- weekly %>%
+  transmute(
+    sender   = as.character(finessGeo_origin),
+    receiver = as.character(finessGeo_target),
+    weight   = as.numeric(weight)
+  ) %>%
+  filter(!is.na(sender), !is.na(receiver)) %>%
+  group_by(sender,receiver) %>%
+  summarise(
+    transfer = sum(weight)
+  )
+#------------------------------------------------------------
+# 2) Build node table WITH coordinates
+#    (edit the coord column names here to match your df)
+#------------------------------------------------------------
+# If df already has coords for each node (commonly repeated per row),
+# create a unique node table from df.
+nodes_geo <- finess_geo %>%
+  # CHANGE these to your real column names in df:
+  transmute(
+    node = as.character(finessGeo),   # or origin/target node id column you have
+    lon  = as.numeric(lon),           # longitude column in df
+    lat  = as.numeric(lat)            # latitude column in df
+  ) %>%
+  filter(!is.na(node), !is.na(lon), !is.na(lat)) %>%
+  distinct(node, lon, lat)
+
+# If instead your coords live in separate columns for origin/target inside df,
+# comment the block above and use this pattern:
+# nodes_geo <- bind_rows(
+#   df %>% transmute(node = as.character(finessGeo_origin),
+#                    lon = as.numeric(origin_lon),
+#                    lat = as.numeric(origin_lat)),
+#   df %>% transmute(node = as.character(finessGeo_target),
+#                    lon = as.numeric(target_lon),
+#                    lat = as.numeric(target_lat))
+# ) %>% filter(!is.na(node), !is.na(lon), !is.na(lat)) %>% distinct()
+
+#------------------------------------------------------------
+# 3) Join coords to edges (origin + target)
+#------------------------------------------------------------
+edges_geo <- edges_year %>%
+  left_join(nodes_geo %>% rename(origin = node, o_lon = lon, o_lat = lat), by = "origin") %>%
+  left_join(nodes_geo %>% rename(target = node, t_lon = lon, t_lat = lat), by = "target") %>%
+  filter(!is.na(o_lon), !is.na(o_lat), !is.na(t_lon), !is.na(t_lat))
+
+#------------------------------------------------------------
+# 4) Get France map polygon (mainland + Corsica in one)
+#------------------------------------------------------------
+fr <- rnaturalearth::ne_countries(country = "France", returnclass = "sf") %>%
+  st_transform(4326)  # lon/lat
+
+#------------------------------------------------------------
+# 5) (Highly recommended) Reduce clutter: keep strongest edges
+#------------------------------------------------------------
+edges_plot <- edges_geo %>%
+  filter(weight > 0) %>%
+  mutate(weight_scaled = log10(weight + 1)) %>%   # smoother scaling
+  slice_max(order_by = weight, n = 2000)          # adjust: 300–5000
+
+#------------------------------------------------------------
+# 6) Plot: network on France map
+#------------------------------------------------------------
+ggplot() +
+  geom_sf(data = fr, linewidth = 0.3) +
+  geom_curve(
+    data = edges_plot,
+    aes(x = o_lon, y = o_lat, xend = t_lon, yend = t_lat,
+        linewidth = weight_scaled),
+    curvature = 0.15,
+    alpha = 0.15
+  ) +
+  geom_point(
+    data = nodes_geo,
+    aes(x = lon, y = lat),
+    size = 0.6,
+    alpha = 0.6
+  ) +
+  coord_sf(xlim = c(-5.5, 9.8), ylim = c(41.0, 51.6), expand = FALSE) +
+  scale_linewidth_continuous(range = c(0.1, 1.2)) +
+  theme_void() +
+  theme(legend.position = "right") +
+  labs(linewidth = "log10(total transfers + 1)")
+
+```

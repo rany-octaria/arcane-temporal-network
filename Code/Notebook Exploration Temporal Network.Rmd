@@ -830,101 +830,101 @@ plots_network_monthly <- plot_network_summary_metrics(
 
 ```{r Visualize Year Aggregate, include = FALSE}
 
-
-# packages
-library(tidyverse)        # dplyr, ggplot2, readr, etc.
-library(sf)               # spatial objects + plotting with coord_sf()
-library(rnaturalearth)    # country polygons
-library(rnaturalearthdata)# data backend for rnaturalearth
-
-#------------------------------------------------------------
-# 1) Aggregate transfers over the whole year (one edge per pair)
-#------------------------------------------------------------
-
-edge_year_weekly <- weekly %>%
-  transmute(
-    sender   = as.character(finessGeo_origin),
-    receiver = as.character(finessGeo_target),
-    weight   = as.numeric(weight)
-  ) %>%
-  filter(!is.na(sender), !is.na(receiver)) %>% 
-  group_by(sender,receiver) %>% 
-  summarise(
-    transfer = sum(weight)
-  )
-#------------------------------------------------------------
-# 2) Build node table WITH coordinates
-#    (edit the coord column names here to match your df)
-#------------------------------------------------------------
-# If df already has coords for each node (commonly repeated per row),
-# create a unique node table from df.
-nodes_geo <- df %>%
-  # CHANGE these to your real column names in df:
-  transmute(
-    node = as.character(finessGeo),   # or origin/target node id column you have
-    lon  = as.numeric(lon),           # longitude column in df
-    lat  = as.numeric(lat)            # latitude column in df
-  ) %>%
-  filter(!is.na(node), !is.na(lon), !is.na(lat)) %>%
-  distinct(node, lon, lat)
-
-# If instead your coords live in separate columns for origin/target inside df,
-# comment the block above and use this pattern:
-# nodes_geo <- bind_rows(
-#   df %>% transmute(node = as.character(finessGeo_origin),
-#                    lon = as.numeric(origin_lon),
-#                    lat = as.numeric(origin_lat)),
-#   df %>% transmute(node = as.character(finessGeo_target),
-#                    lon = as.numeric(target_lon),
-#                    lat = as.numeric(target_lat))
-# ) %>% filter(!is.na(node), !is.na(lon), !is.na(lat)) %>% distinct()
-
-#------------------------------------------------------------
-# 3) Join coords to edges (origin + target)
-#------------------------------------------------------------
-edges_geo <- edges_year %>%
-  left_join(nodes_geo %>% rename(origin = node, o_lon = lon, o_lat = lat), by = "origin") %>%
-  left_join(nodes_geo %>% rename(target = node, t_lon = lon, t_lat = lat), by = "target") %>%
-  filter(!is.na(o_lon), !is.na(o_lat), !is.na(t_lon), !is.na(t_lat))
-
-#------------------------------------------------------------
-# 4) Get France map polygon (mainland + Corsica in one)
-#------------------------------------------------------------
-fr <- rnaturalearth::ne_countries(country = "France", returnclass = "sf") %>%
-  st_transform(4326)  # lon/lat
-
-#------------------------------------------------------------
-# 5) (Highly recommended) Reduce clutter: keep strongest edges
-#------------------------------------------------------------
-edges_plot <- edges_geo %>%
-  filter(weight > 0) %>%
-  mutate(weight_scaled = log10(weight + 1)) %>%   # smoother scaling
-  slice_max(order_by = weight, n = 2000)          # adjust: 300–5000
-
-#------------------------------------------------------------
-# 6) Plot: network on France map
-#------------------------------------------------------------
-ggplot() +
-  geom_sf(data = fr, linewidth = 0.3) +
-  geom_curve(
-    data = edges_plot,
-    aes(x = o_lon, y = o_lat, xend = t_lon, yend = t_lat,
-        linewidth = weight_scaled),
-    curvature = 0.15,
-    alpha = 0.15
-  ) +
-  geom_point(
-    data = nodes_geo,
-    aes(x = lon, y = lat),
-    size = 0.6,
-    alpha = 0.6
-  ) +
-  coord_sf(xlim = c(-5.5, 9.8), ylim = c(41.0, 51.6), expand = FALSE) +
-  scale_linewidth_continuous(range = c(0.1, 1.2)) +
-  theme_void() +
-  theme(legend.position = "right") +
-  labs(linewidth = "log10(total transfers + 1)")
-
+# 
+# # packages
+# library(tidyverse)        # dplyr, ggplot2, readr, etc.
+# library(sf)               # spatial objects + plotting with coord_sf()
+# library(rnaturalearth)    # country polygons
+# library(rnaturalearthdata)# data backend for rnaturalearth
+# 
+# #------------------------------------------------------------
+# # 1) Aggregate transfers over the whole year (one edge per pair)
+# #------------------------------------------------------------
+# 
+# edge_year_weekly <- weekly %>%
+#   transmute(
+#     sender   = as.character(finessGeo_origin),
+#     receiver = as.character(finessGeo_target),
+#     weight   = as.numeric(weight)
+#   ) %>%
+#   filter(!is.na(sender), !is.na(receiver)) %>% 
+#   group_by(sender,receiver) %>% 
+#   summarise(
+#     transfer = sum(weight)
+#   )
+# #------------------------------------------------------------
+# # 2) Build node table WITH coordinates
+# #    (edit the coord column names here to match your df)
+# #------------------------------------------------------------
+# # If df already has coords for each node (commonly repeated per row),
+# # create a unique node table from df.
+# nodes_geo <- df %>%
+#   # CHANGE these to your real column names in df:
+#   transmute(
+#     node = as.character(finessGeo),   # or origin/target node id column you have
+#     lon  = as.numeric(lon),           # longitude column in df
+#     lat  = as.numeric(lat)            # latitude column in df
+#   ) %>%
+#   filter(!is.na(node), !is.na(lon), !is.na(lat)) %>%
+#   distinct(node, lon, lat)
+# 
+# # If instead your coords live in separate columns for origin/target inside df,
+# # comment the block above and use this pattern:
+# # nodes_geo <- bind_rows(
+# #   df %>% transmute(node = as.character(finessGeo_origin),
+# #                    lon = as.numeric(origin_lon),
+# #                    lat = as.numeric(origin_lat)),
+# #   df %>% transmute(node = as.character(finessGeo_target),
+# #                    lon = as.numeric(target_lon),
+# #                    lat = as.numeric(target_lat))
+# # ) %>% filter(!is.na(node), !is.na(lon), !is.na(lat)) %>% distinct()
+# 
+# #------------------------------------------------------------
+# # 3) Join coords to edges (origin + target)
+# #------------------------------------------------------------
+# edges_geo <- edges_year %>%
+#   left_join(nodes_geo %>% rename(origin = node, o_lon = lon, o_lat = lat), by = "origin") %>%
+#   left_join(nodes_geo %>% rename(target = node, t_lon = lon, t_lat = lat), by = "target") %>%
+#   filter(!is.na(o_lon), !is.na(o_lat), !is.na(t_lon), !is.na(t_lat))
+# 
+# #------------------------------------------------------------
+# # 4) Get France map polygon (mainland + Corsica in one)
+# #------------------------------------------------------------
+# fr <- rnaturalearth::ne_countries(country = "France", returnclass = "sf") %>%
+#   st_transform(4326)  # lon/lat
+# 
+# #------------------------------------------------------------
+# # 5) (Highly recommended) Reduce clutter: keep strongest edges
+# #------------------------------------------------------------
+# edges_plot <- edges_geo %>%
+#   filter(weight > 0) %>%
+#   mutate(weight_scaled = log10(weight + 1)) %>%   # smoother scaling
+#   slice_max(order_by = weight, n = 2000)          # adjust: 300–5000
+# 
+# #------------------------------------------------------------
+# # 6) Plot: network on France map
+# #------------------------------------------------------------
+# ggplot() +
+#   geom_sf(data = fr, linewidth = 0.3) +
+#   geom_curve(
+#     data = edges_plot,
+#     aes(x = o_lon, y = o_lat, xend = t_lon, yend = t_lat,
+#         linewidth = weight_scaled),
+#     curvature = 0.15,
+#     alpha = 0.15
+#   ) +
+#   geom_point(
+#     data = nodes_geo,
+#     aes(x = lon, y = lat),
+#     size = 0.6,
+#     alpha = 0.6
+#   ) +
+#   coord_sf(xlim = c(-5.5, 9.8), ylim = c(41.0, 51.6), expand = FALSE) +
+#   scale_linewidth_continuous(range = c(0.1, 1.2)) +
+#   theme_void() +
+#   theme(legend.position = "right") +
+#   labs(linewidth = "log10(total transfers + 1)")
+# 
 
 
 ```
