@@ -16,7 +16,7 @@ output:
 
 ## Exploratory Data Analysis of the Temporal Direct Network Data
 
-```{r setup, echo= FALSE, include = FALSE}
+```{r setup, include = FALSE}
 
 # FIRST: MAKE SURE YOU OPEN THIS CODE FROM THE ARCANE-TEMPORAL-NETWORK PROJECT
 # SECOND: make sure you download  the transfer datasets here #https://ehespfr-my.sharepoint.com/personal/shrichand_bhuria_ehesp_fr/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fshrichand%5Fbhuria%5Fehesp%5Ffr%2FDocuments%2FHBN%5F2024%5Fdata%5Fsharing&ga=1 
@@ -29,7 +29,9 @@ library(ggplot2)
 library(igraph)
 library(here)
 library(purrr)     # map_dfr
-library(igraph) 
+library(igraph)
+library(patchwork)   # side-by-side layout
+
 
 options(scipen = 999)
 # Import the CSV datasets
@@ -45,7 +47,7 @@ We are running exploratory data analyses of the French transfer networks. OUr da
 Let's explore the direct transfers with 7-day (weekly) time window,starting for all year
 timespan. 
 
-```{r reading hospital data}
+```{r reading hospital data, include = FALSE}
 
 #Available here: https://drees2-sgsocialgouv.opendatasoft.com/explore/dataset/708_bases-statistiques-sae/information/
 # CAPACT24 appears to refer to a capacity variable for full inpatient hospitalization, specifically the number of installed beds for hospitalisation complète (24 hours or more) in the relevant unit or activity table. The SAE variable list snippet for 2024 shows the label beginning with “Nombre de lits installés en hospitalisation complète…”, and the SAE documentation explains that the survey collects establishments’ capacities, activity, technical platforms, and staffing through thematic tables.
@@ -542,13 +544,7 @@ $$
 
 
 ## Graphing all the Stats
-```{r graph daybyday}
-# packages used
-library(dplyr)      # select, mutate, arrange, filter
-library(tidyr)      # pivot_longer
-library(ggplot2)    # ggplot, geoms, scales, theme
-library(here)       # here()
-library(purrr)      # walk
+```{r graph daybyday, echo = FALSE,  fig.width=16, fig.height=5, out.width="100%"}
 
 season_colors <- c(
   "Winter" = "#1f78b4",
@@ -558,39 +554,35 @@ season_colors <- c(
 )
 
 metric_labels <- c(
-  num_nodes = "Number of active nodes",
-  num_edges = "Number of edges",
-  density = "Edge density",
-  num_connected_components_weak = "Connected components (weak)",
-  num_connected_components_strong = "Connected components (strong)",
-  reciprocity = "Reciprocity",
-  avg_degree_total = "Average degree (total)",
-  avg_degree_in = "Average in-degree",
-  avg_degree_out = "Average out-degree",
-  max_degree_in = "Max in-degree",
-  max_degree_out = "Max out-degree",
-  avg_strength_in = "Average in-strength (weighted)",
-  avg_strength_out = "Average out-strength (weighted)",
-  max_strength_in = "Max in-strength (weighted)",
-  max_strength_out = "Max out-strength (weighted)",
-  avg_path_length = "Average shortest-path length (weighted)",
-  diameter_weighted = "Network diameter (weighted)",
-  transitivity_global = "Transitivity (global)",
-  transitivity_local_mean = "Transitivity (mean local)",
-  transitivity_local_median = "Transitivity (median local)",
-  degree_centralization_in = "Degree centralization (in)",
-  degree_centralization_out = "Degree centralization (out)",
-  assortativity_degree = "Assortativity by degree",
-  constraint_mean = "Burt constraint (mean)"
+  num_nodes                      = "Number of active nodes",
+  num_edges                      = "Number of edges",
+  density                        = "Edge density",
+  num_connected_components_weak  = "Connected components (weak)",
+  num_connected_components_strong= "Connected components (strong)",
+  reciprocity                    = "Reciprocity",
+  avg_degree_total               = "Average degree (total)",
+  avg_degree_in                  = "Average in-degree",
+  avg_degree_out                 = "Average out-degree",
+  max_degree_in                  = "Max in-degree",
+  max_degree_out                 = "Max out-degree",
+  avg_strength_in                = "Average in-strength (weighted)",
+  avg_strength_out               = "Average out-strength (weighted)",
+  max_strength_in                = "Max in-strength (weighted)",
+  max_strength_out               = "Max out-strength (weighted)",
+  avg_path_length                = "Average shortest-path length (weighted)",
+  diameter_weighted              = "Network diameter (weighted)",
+  transitivity_global            = "Transitivity (global)",
+  transitivity_local_mean        = "Transitivity (mean local)",
+  transitivity_local_median      = "Transitivity (median local)",
+  degree_centralization_in       = "Degree centralization (in)",
+  degree_centralization_out      = "Degree centralization (out)",
+  assortativity_degree           = "Assortativity by degree",
+  constraint_mean                = "Burt constraint (mean)"
 )
 
-plot_network_summary_metrics <- function(data,
-                                         period_label = "Weekly",
-                                         date_col = "time_window",
-                                         output_prefix = "weekly",
-                                         output_folder = "Plots") {
-  
-  plot_df <- data %>%
+# Helper: build a long-format tibble ready for plotting
+prepare_plot_df <- function(data, date_col = "time_window") {
+  data %>%
     mutate(
       !!date_col := as.Date(.data[[date_col]]),
       season = case_when(
@@ -601,345 +593,338 @@ plot_network_summary_metrics <- function(data,
       ),
       season = factor(season, levels = c("Winter", "Spring", "Summer", "Autumn"))
     ) %>%
-    arrange(.data[[date_col]])
-  
-  metrics_to_plot <- intersect(names(metric_labels), names(plot_df))
-  
-  plots_dir <- here::here(output_folder)
-  if (!dir.exists(plots_dir)) {
-    dir.create(plots_dir, recursive = TRUE)
-  }
-  
-  plot_long <- plot_df %>%
-    select(all_of(date_col), season, all_of(metrics_to_plot)) %>%
+    arrange(.data[[date_col]]) %>%
+    select(all_of(date_col), season,
+           all_of(intersect(names(metric_labels), names(.)))) %>%
     pivot_longer(
-      cols = all_of(metrics_to_plot),
-      names_to = "metric",
+      cols = -c(all_of(date_col), season),
+      names_to  = "metric",
       values_to = "value"
     ) %>%
-    mutate(
-      metric_label = unname(metric_labels[metric])
-    )
-  
-  plot_list <- list()
-  
-  purrr::walk(unique(plot_long$metric), function(m) {
-    
-    tmp <- plot_long %>% filter(metric == m)
-    nice_label <- unique(tmp$metric_label)
-    
-    p <- ggplot(
-      tmp,
-      aes(
-        x = .data[[date_col]],
-        y = value,
-        color = season,
-        group = 1
-      )
-    ) +
-      geom_line(linewidth = 0.5, na.rm = TRUE) +
-      geom_point(size = 1, na.rm = TRUE) +
-      scale_color_manual(values = season_colors, drop = FALSE) +
-      scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
-      labs(
-        title = paste( "Daily Trend of", nice_label),
-        subtitle = paste(
-          "French Direct Transfer Data, 2024,",
-          period_label,
-          "Temporal Window"
-        ),
-        x = "Month",
-        y = nice_label,
-        color = "Season"
-      ) +
-      theme_minimal() +
-      theme(
-        axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5),
-        plot.subtitle = element_text(hjust = 0.5)
-      )
-    
-    print(p)
-    
-    ggsave(
-      filename = file.path(plots_dir, paste0(output_prefix, "_", m, ".jpeg")),
-      plot = p,
-      width = 6,
-      height = 4,
-      units = "in",
-      dpi = 300
-    )
-    
-    plot_list[[m]] <<- p
-  })
-  
-  return(plot_list)
+    mutate(metric_label = unname(metric_labels[metric]))
 }
-plots_network_weekly <- plot_network_summary_metrics(
-  data = network_metrics_weekly,
-  period_label = "Weekly",
-  date_col = "time_window",
-  output_prefix = "weekly"
-)
 
-plots_network_monthly <- plot_network_summary_metrics(
-  data = network_metrics_monthly,
-  period_label = "Monthly",
-  date_col = "time_window",
-  output_prefix = "monthly"
-)
+# Helper: build a single ggplot for one metric / one period
+build_plot <- function(df_long, metric_name, date_col, period_label) {
+  tmp        <- df_long %>% filter(metric == metric_name)
+  nice_label <- unique(tmp$metric_label)
 
+  ggplot(tmp, aes(x = .data[[date_col]], y = value,
+                  color = season, group = 1)) +
+    geom_line(linewidth = 0.5, na.rm = TRUE) +
+    geom_point(size = 1,       na.rm = TRUE) +
+    scale_color_manual(values = season_colors, drop = FALSE) +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    labs(
+      title    = paste(period_label, "–", nice_label),
+      subtitle = "French Direct Transfer Data, 2024",
+      x        = "Month",
+      y        = nice_label,
+      color    = "Season"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x  = element_text(angle = 45, hjust = 1),
+      plot.title   = element_text(hjust = 0.5, size = 10),
+      plot.subtitle= element_text(hjust = 0.5, size = 8)
+    )
+}
 
-```
+# Prepare long-format data for both resolutions
+df_weekly  <- prepare_plot_df(network_metrics_weekly,  date_col = "time_window")
+df_monthly <- prepare_plot_df(network_metrics_monthly, date_col = "time_window")
 
-## Visualizing Dynamic Temporal Networks 
-```{r temporal network viz, include = FALSE}
-# 1) Unique windows
-# windows <- df2 %>%
-#   distinct(weekly_window_number, window_start, window_end) %>%
-#   arrange(window_start)
-# 
-# # 2) Create a 7-day grid over window_start range
-# grid <- tibble(
-#   grid_date = seq(min(windows$window_start), max(windows$window_start), by = "7 days")
-# )
-# 
-# # 3) For each grid_date, pick the nearest window_start (stable and deterministic)
-# sampled_windows <- grid %>%
-#   mutate(
-#     weekly_window_number = map_int(
-#       grid_date,
-#       ~ windows %>%
-#         mutate(dist = abs(as.numeric(window_start - .x))) %>%
-#         slice_min(dist, with_ties = FALSE) %>%
-#         pull(weekly_window_number)
-#     )
-#   ) %>%
-#   left_join(windows, by = "weekly_window_number") %>%
-#   distinct(weekly_window_number, window_start, window_end) %>%
-#   arrange(window_start) %>%
-#   mutate(
-#     week_label = paste0(
-#       "Week ", weekly_window_number, " (", window_start, " to ", window_end, ")"
-#     )
-#   )
-# 4) Filter edges to only those sampled windows
-# df_sampled <- df2 %>%
-#   inner_join(sampled_windows %>% select(weekly_window_number, week_label),
-#              by = "weekly_window_number")
+# Shared set of metrics present in both datasets
+shared_metrics <- intersect(unique(df_weekly$metric),
+                             unique(df_monthly$metric))
 
-# ---- packages ----
-# library(tidyverse)   # dplyr, tibble, purrr
-# library(tidygraph)   # tbl_graph
-# library(ggraph)      # ggraph
-# library(gganimate)   # transition_states, animate
-# library(igraph)      # graph + layouts
-# library(grid)        # unit()
-# library(here)        # here()
-# library(av)          # av_renderer()
-# 
-# # ---- 0) Clean + type-stabilize ----
-# df2 <- df %>%
-#   mutate(
-#     window_start = as.Date(window_start),
-#     window_end   = as.Date(window_end),
-#     weekly_window_number = as.integer(weekly_window_number),
-#     weight = as.numeric(weight)
-#   ) %>%
-#   # guard against list-columns that can break tweening (order(ind) error)
-#   select(where(~ !is.list(.)))
-# 
-# # ---- 1) Stable node set + stable layout ----
-# all_nodes <- df2 %>%
-#   transmute(name = finessGeo_origin) %>%
-#   bind_rows(df2 %>% transmute(name = finessGeo_target)) %>%
-#   distinct()
-# 
-# base_edges <- df2 %>%
-#   distinct(finessGeo_origin, finessGeo_target) %>%
-#   transmute(from = finessGeo_origin, to = finessGeo_target)
-# 
-# base_graph <- igraph::graph_from_data_frame(
-#   d = base_edges,
-#   directed = TRUE,
-#   vertices = all_nodes
-# )
-# 
-# set.seed(1)
-# layout_tbl <- igraph::layout_with_fr(base_graph) %>%
-#   as_tibble(.name_repair = "minimal") %>%
-#   setNames(c("x", "y")) %>%
-#   bind_cols(all_nodes) %>%
-#   mutate(
-#     x = as.numeric(x),
-#     y = as.numeric(y)
-#   )
-# 
-# nodes_tbl <- layout_tbl %>%
-#   transmute(name, x, y)
-# 
-# # ---- 2) Edge data for animation (top N per frame) ----
-# edges_anim <- df2 %>%
-#   transmute(
-#     from = finessGeo_origin,
-#     to   = finessGeo_target,
-#     weight,
-#     window_start
-#   ) %>%
-#   select(where(~ !is.list(.))) %>%
-#   mutate(
-#     from = as.character(from),
-#     to   = as.character(to),
-#     weight = as.numeric(weight),
-#     window_start = as.Date(window_start)
-#   )
-# 
-# N_EDGES <- 150
-# 
-# edges_anim_fast2 <- edges_anim %>%
-#   group_by(window_start) %>%
-#   slice_max(order_by = weight, n = N_EDGES, with_ties = FALSE) %>%
-#   ungroup()
-# 
-# # ---- 3) Build tbl_graph ----
-# g_tbl <- tbl_graph(nodes = nodes_tbl, edges = edges_anim_fast2, directed = TRUE)
-# 
-# # ---- 4) IMPORTANT FIX: define a real state variable (week_label was undefined) ----
-# # Use window_start as state; create a readable label if you want.
-# g_tbl <- g_tbl %>%
-#   activate(edges) %>%
-#   mutate(
-#     state = window_start,
-#     state_label = format(window_start, "%Y-%m-%d")
-#   )
-# 
-# # ---- 5) Plot + animation ----
-# p_fast <- ggraph(g_tbl, layout = "manual", x = x, y = y) +
-#   geom_edge_link(aes(width = weight), alpha = 0.6) +
-#   geom_node_point(size = 2.2) +
-#   scale_edge_width(range = c(0.1, 2.0)) +
-#   theme_void() +
-#   transition_states(
-#     states = state,
-#     transition_length = 1,
-#     state_length = 1,
-#     wrap = FALSE
-#   ) +
-#   labs(title = "Window start: {closest_state}") +
-#   ease_aes("linear")
-# 
-# dir.create(here("Outputs"), showWarnings = FALSE, recursive = TRUE)
-# 
-# # render
-# anim <- animate(
-#   p_fast,
-#   nframes = 60,
-#   fps = 10,
-#   width = 400,
-#   height = 400,
-#   renderer = av_renderer(here("Outputs", "network_fast.mp4"))
-# )
-# 
-# anim
+# Output folder for saved files
+plots_dir <- here::here("Plots")
+if (!dir.exists(plots_dir)) dir.create(plots_dir, recursive = TRUE)
 
-```
+# Render one side-by-side panel per metric
+walk(shared_metrics, function(m) {
 
+  p_weekly  <- build_plot(df_weekly,  m, "time_window", "Weekly")
+  p_monthly <- build_plot(df_monthly, m, "time_window", "Monthly")
 
-```{r Visualize Year Aggregate, include = FALSE}
+  # Weekly on the LEFT, Monthly on the RIGHT
+  # shared legend is pulled to the right via patchwork
+  combined <- (p_weekly | p_monthly) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "right")
 
+  print(combined)          # renders inline in the HTML output
 
-# packages
-library(tidyverse)        # dplyr, ggplot2, readr, etc.
-library(sf)               # spatial objects + plotting with coord_sf()
-library(rnaturalearth)    # country polygons
-library(rnaturalearthdata)# data backend for rnaturalearth
-
-#------------------------------------------------------------
-# 1) Aggregate transfers over the whole year (one edge per pair)
-#------------------------------------------------------------
-
-edge_year_weekly <- weekly %>%
-  transmute(
-    sender   = as.character(finessGeo_origin),
-    receiver = as.character(finessGeo_target),
-    weight   = as.numeric(weight)
-  ) %>%
-  filter(!is.na(sender), !is.na(receiver)) %>%
-  group_by(sender,receiver) %>%
-  summarise(
-    transfer = sum(weight)
+  ggsave(
+    filename = file.path(plots_dir, paste0("combined_", m, ".jpeg")),
+    plot     = combined,
+    width    = 16,
+    height   = 5,
+    units    = "in",
+    dpi      = 300
   )
-#------------------------------------------------------------
-# 2) Build node table WITH coordinates
-#    (edit the coord column names here to match your df)
-#------------------------------------------------------------
-# If df already has coords for each node (commonly repeated per row),
-# create a unique node table from df.
-nodes_geo <- finess_geo %>%
-  # CHANGE these to your real column names in df:
-  transmute(
-    node = as.character(finessGeo),   # or origin/target node id column you have
-    lon  = as.numeric(lon),           # longitude column in df
-    lat  = as.numeric(lat)            # latitude column in df
+})
+
+```
+
+```{r annual-network-interactive, echo = FALSE, fig.width=16, fig.height=10, out.width="100%", warning=FALSE, message=FALSE}
+library(dplyr)
+library(igraph)
+library(ggraph)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(RColorBrewer)
+library(plotly)
+
+# ── 1. REGION & HOSPITAL-TYPE LOOKUPS ────────────────────────────────────────
+region_labels <- c(
+  "11" = "Île-de-France",       "24" = "Centre-Val de Loire",
+  "27" = "Bourgogne-Franche-Comté", "28" = "Normandie",
+  "32" = "Hauts-de-France",     "44" = "Grand Est",
+  "52" = "Pays de la Loire",    "53" = "Bretagne",
+  "75" = "Nouvelle-Aquitaine",  "76" = "Occitanie",
+  "84" = "Auvergne-Rhône-Alpes","93" = "Provence-Alpes-Côte d'Azur",
+  "94" = "Corse",               "01" = "Guadeloupe",
+  "02" = "Martinique",          "03" = "Guyane",
+  "04" = "La Réunion",          "06" = "Mayotte"
+)
+
+# SAE cat codes → readable hospital type
+hospital_type_labels <- c(
+  "101" = "CHR / CHU",
+  "106" = "Centre Hospitalier (CH)",
+  "109" = "Centre Hospitalier (CH)",
+  "355" = "Centre Hospitalier (CH)",
+  "362" = "Centre Hospitalier (CH)",
+  "365" = "Clinique privée (MCO)",
+  "128" = "Clinique privée (SSR)",
+  "129" = "Clinique privée (PSY)",
+  "127" = "Clinique privée (autre)",
+  "146" = "EHPAD / Médico-social",
+  "141" = "EHPAD / Médico-social",
+  "161" = "HAD",
+  "292" = "Centre de dialyse",
+  "697" = "Autre établissement",
+  "698" = "Autre établissement",
+  "699" = "Autre établissement"
+)
+
+# ── 2. BUILD NODE TABLE ───────────────────────────────────────────────────────
+capact_nodes <- capact24 %>%
+  mutate(LIT = as.numeric(LIT)) %>%
+  group_by(fi) %>%
+  summarise(
+    rs         = first(rs),
+    dep        = first(dep),
+    reg        = first(as.character(reg)),
+    cat        = first(as.character(cat)),
+    total_beds = sum(LIT, na.rm = TRUE),
+    .groups    = "drop"
   ) %>%
-  filter(!is.na(node), !is.na(lon), !is.na(lat)) %>%
-  distinct(node, lon, lat)
+  mutate(
+    region        = coalesce(region_labels[reg],        paste0("Région ", reg)),
+    hospital_type = coalesce(hospital_type_labels[cat], paste0("Cat. ", cat))
+  )
 
-# If instead your coords live in separate columns for origin/target inside df,
-# comment the block above and use this pattern:
-# nodes_geo <- bind_rows(
-#   df %>% transmute(node = as.character(finessGeo_origin),
-#                    lon = as.numeric(origin_lon),
-#                    lat = as.numeric(origin_lat)),
-#   df %>% transmute(node = as.character(finessGeo_target),
-#                    lon = as.numeric(target_lon),
-#                    lat = as.numeric(target_lat))
-# ) %>% filter(!is.na(node), !is.na(lon), !is.na(lat)) %>% distinct()
+nodes <- finess_geo %>%
+  dplyr::rename(fi = finessgeo, lon = coordxet, lat = coordyet) %>%
+  select(fi, lon, lat) %>%
+  inner_join(capact_nodes, by = "fi")
 
-#------------------------------------------------------------
-# 3) Join coords to edges (origin + target)
-#------------------------------------------------------------
-edges_geo <- edges_year %>%
-  left_join(nodes_geo %>% rename(origin = node, o_lon = lon, o_lat = lat), by = "origin") %>%
-  left_join(nodes_geo %>% rename(target = node, t_lon = lon, t_lat = lat), by = "target") %>%
-  filter(!is.na(o_lon), !is.na(o_lat), !is.na(t_lon), !is.na(t_lat))
+# ── 3. ANNUAL CUMULATIVE EDGES ────────────────────────────────────────────────
+annual_edges <- weekly %>%
+  group_by(finessGeo_origin, finessGeo_target) %>%
+  summarise(total_weight = sum(weight, na.rm = TRUE), .groups = "drop")
 
-#------------------------------------------------------------
-# 4) Get France map polygon (mainland + Corsica in one)
-#------------------------------------------------------------
-fr <- rnaturalearth::ne_countries(country = "France", returnclass = "sf") %>%
-  st_transform(4326)  # lon/lat
+edges_geo <- annual_edges %>%
+  inner_join(nodes, by = c("finessGeo_origin" = "fi")) %>%
+  rename(lon_from = lon, lat_from = lat, region_from = region,
+         name_from = rs, type_from = hospital_type, beds_from = total_beds) %>%
+  inner_join(nodes, by = c("finessGeo_target" = "fi")) %>%
+  rename(lon_to = lon, lat_to = lat, region_to = region,
+         name_to = rs, type_to = hospital_type, beds_to = total_beds)
 
-#------------------------------------------------------------
-# 5) (Highly recommended) Reduce clutter: keep strongest edges
-#------------------------------------------------------------
-edges_plot <- edges_geo %>%
-  filter(weight > 0) %>%
-  mutate(weight_scaled = log10(weight + 1)) %>%   # smoother scaling
-  slice_max(order_by = weight, n = 2000)          # adjust: 300–5000
+# ── 4. STRONG EDGES (top 10%) ─────────────────────────────────────────────────
+strong_threshold <- quantile(edges_geo$total_weight, 0.90, na.rm = TRUE)
+edges_strong     <- edges_geo %>% filter(total_weight >= strong_threshold)
 
-#------------------------------------------------------------
-# 6) Plot: network on France map
-#------------------------------------------------------------
-ggplot() +
-  geom_sf(data = fr, linewidth = 0.3) +
-  geom_curve(
-    data = edges_plot,
-    aes(x = o_lon, y = o_lat, xend = t_lon, yend = t_lat,
-        linewidth = weight_scaled),
-    curvature = 0.15,
-    alpha = 0.15
-  ) +
-  geom_point(
-    data = nodes_geo,
-    aes(x = lon, y = lat),
-    size = 0.6,
-    alpha = 0.6
-  ) +
-  coord_sf(xlim = c(-5.5, 9.8), ylim = c(41.0, 51.6), expand = FALSE) +
-  scale_linewidth_continuous(range = c(0.1, 1.2)) +
-  theme_void() +
-  theme(legend.position = "right") +
-  labs(linewidth = "log10(total transfers + 1)")
+active_ids   <- unique(c(edges_strong$finessGeo_origin, edges_strong$finessGeo_target))
+nodes_strong <- nodes %>% filter(fi %in% active_ids)
 
+# ── 5. COLOUR PALETTE ─────────────────────────────────────────────────────────
+province_levels <- sort(unique(nodes_strong$region))
+n_prov          <- length(province_levels)
+base_cols       <- brewer.pal(min(max(n_prov, 3), 12), "Paired")
+if (n_prov > 12) base_cols <- colorRampPalette(base_cols)(n_prov)
+province_colors <- setNames(base_cols[seq_len(n_prov)], province_levels)
+
+# ── 6. HELPER: build interactive plotly from a node/edge layout ───────────────
+make_interactive_network <- function(node_df, edge_df, title_text) {
+  # node_df must have: fi, x, y, rs, region, hospital_type, total_beds
+  # edge_df must have: finessGeo_origin, finessGeo_target, total_weight,
+  #                    name_from, name_to, region_from, x_from, y_from, x_to, y_to
+
+  # --- Edge traces (one invisible point per edge midpoint carries the tooltip)
+  edge_traces <- lapply(seq_len(nrow(edge_df)), function(i) {
+    e <- edge_df[i, ]
+    list(
+      # line segment
+      list(
+        type = "scatter", mode = "lines",
+        x = c(e$x_from, e$x_to, NA),
+        y = c(e$y_from, e$y_to, NA),
+        line = list(
+          color = province_colors[e$region_from],
+          width = scales::rescale(e$total_weight,
+                                   to = c(0.4, 3),
+                                   from = range(edge_df$total_weight))
+        ),
+        opacity = scales::rescale(e$total_weight,
+                                   to = c(0.2, 0.8),
+                                   from = range(edge_df$total_weight)),
+        hoverinfo = "none",
+        showlegend = FALSE
+      ),
+      # midpoint marker for tooltip
+      list(
+        type = "scatter", mode = "markers",
+        x = list((e$x_from + e$x_to) / 2),
+        y = list((e$y_from + e$y_to) / 2),
+        marker = list(size = 6, opacity = 0, color = "rgba(0,0,0,0)"),
+        text = paste0(
+          "<b>From:</b> ", e$name_from, "<br>",
+          "<b>To:</b> ",   e$name_to,   "<br>",
+          "<b>Transfers:</b> ", format(e$total_weight, big.mark = ",")
+        ),
+        hoverinfo = "text",
+        showlegend = FALSE
+      )
+    )
+  })
+  edge_traces_flat <- unlist(edge_traces, recursive = FALSE)
+
+  # --- Node traces (one per region so legend works)
+  node_traces <- lapply(province_levels, function(reg) {
+    nd <- node_df %>% filter(region == reg)
+    if (nrow(nd) == 0) return(NULL)
+    list(
+      type = "scatter", mode = "markers",
+      x = nd$x, y = nd$y,
+      name = reg,
+      marker = list(size = 7, color = province_colors[reg],
+                    line = list(color = "white", width = 0.5)),
+      text = paste0(
+        "<b>", nd$rs, "</b><br>",
+        "Region: ",    nd$region, "<br>",
+        "Type: ",      nd$hospital_type, "<br>",
+        "Beds: ",      nd$total_beds
+      ),
+      hoverinfo = "text",
+      showlegend = TRUE
+    )
+  })
+  node_traces <- Filter(Negate(is.null), node_traces)
+
+  all_traces <- c(edge_traces_flat, node_traces)
+
+  plotly::plot_ly() %>%
+    { Reduce(function(p, tr) add_trace(p,
+        type       = tr$type,
+        mode       = tr$mode,
+        x          = tr$x,
+        y          = tr$y,
+        line       = tr$line,
+        marker     = tr$marker,
+        text       = tr$text,
+        hoverinfo  = tr$hoverinfo,
+        opacity    = tr$opacity,
+        name       = tr$name,
+        showlegend = tr$showlegend
+      ), all_traces, init = .) } %>%
+    plotly::layout(
+      title = list(text = title_text, x = 0.5),
+      xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE, title = ""),
+      yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE, title = ""),
+      plot_bgcolor  = "white",
+      paper_bgcolor = "white",
+      legend = list(title = list(text = "<b>Region</b>"))
+    )
+}
+
+# ── 7A. MAP-OVERLAY PLOT ──────────────────────────────────────────────────────
+france <- rnaturalearth::ne_states(country = "France", returnclass = "sf") %>%
+  filter(!name %in% c("Guyane", "Martinique", "Guadeloupe", "La Réunion", "Mayotte"))
+
+# Convert France polygons → plotly-friendly data frame
+france_df <- sf::st_cast(france, "MULTIPOLYGON") %>%
+  sf::st_coordinates() %>%
+  as.data.frame() %>%
+  rename(lon = X, lat = Y, group = L2)
+
+# Node coords for map layout
+nodes_map <- nodes_strong %>%
+  rename(x = lon, y = lat)
+
+edges_map <- edges_strong %>%
+  rename(x_from = lon_from, y_from = lat_from,
+         x_to   = lon_to,   y_to   = lat_to)
+
+# France basemap trace
+france_traces <- lapply(unique(france_df$group), function(g) {
+  sub <- france_df %>% filter(group == g)
+  list(type = "scatter", mode = "lines",
+       x = c(sub$lon, NA), y = c(sub$lat, NA),
+       line = list(color = "white", width = 0.5),
+       fill = "toself", fillcolor = "rgba(220,220,220,0.5)",
+       hoverinfo = "none", showlegend = FALSE)
+})
+
+p_map_ly <- make_interactive_network(nodes_map, edges_map,
+  "Annual Hospital Transfer Network — overlaid on France (top 10% edges)")
+
+# Inject France polygons as background traces
+p_map_ly$x$data <- c(france_traces, p_map_ly$x$data)
+
+p_map_ly <- p_map_ly %>%
+  plotly::layout(
+    xaxis = list(range = c(-5.5, 10),  showgrid=FALSE, zeroline=FALSE, showticklabels=FALSE, title=""),
+    yaxis = list(range = c(41,   52),  showgrid=FALSE, zeroline=FALSE, showticklabels=FALSE, title="",
+                 scaleanchor = "x")
+  )
+
+# ── 7B. FRUCHTERMAN-REINGOLD LAYOUT ──────────────────────────────────────────
+g_igraph <- igraph::graph_from_data_frame(
+  d        = edges_strong %>% select(finessGeo_origin, finessGeo_target, total_weight),
+  directed = TRUE,
+  vertices = nodes_strong %>% rename(name = fi)
+)
+V(g_igraph)$region        <- nodes_strong$region[match(V(g_igraph)$name, nodes_strong$fi)]
+V(g_igraph)$rs            <- nodes_strong$rs[match(V(g_igraph)$name, nodes_strong$fi)]
+V(g_igraph)$hospital_type <- nodes_strong$hospital_type[match(V(g_igraph)$name, nodes_strong$fi)]
+V(g_igraph)$total_beds    <- nodes_strong$total_beds[match(V(g_igraph)$name, nodes_strong$fi)]
+
+set.seed(42)
+fr_layout <- igraph::layout_with_fr(g_igraph)
+
+nodes_fr <- nodes_strong %>%
+  mutate(
+    x = fr_layout[match(fi, V(g_igraph)$name), 1],
+    y = fr_layout[match(fi, V(g_igraph)$name), 2]
+  )
+
+edges_fr <- edges_strong %>%
+  left_join(nodes_fr %>% select(fi, x, y), by = c("finessGeo_origin" = "fi")) %>%
+  rename(x_from = x, y_from = y) %>%
+  left_join(nodes_fr %>% select(fi, x, y), by = c("finessGeo_target" = "fi")) %>%
+  rename(x_to = x, y_to = y)
+
+p_fr_ly <- make_interactive_network(nodes_fr, edges_fr,
+  "Annual Hospital Transfer Network — Fruchterman-Reingold layout (top 10% edges)")
+
+# ── 8. RENDER ─────────────────────────────────────────────────────────────────
+p_map_ly
+p_fr_ly
+```
 ```
