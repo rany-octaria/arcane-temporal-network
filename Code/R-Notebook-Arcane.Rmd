@@ -432,8 +432,8 @@ calculate_network_metrics <- function(df) {
 #These two lines run the function but it runs very slowly 
 #therefore, it is commented out and instead i am saving it as rds and load it from the dataset
 
-network_metrics_weekly <- calculate_network_metrics(weekly)
-network_metrics_monthly <- calculate_network_metrics(monthly)
+# network_metrics_weekly <- calculate_network_metrics(weekly)
+# network_metrics_monthly <- calculate_network_metrics(monthly)
 
 # saveRDS(network_metrics_weekly, file = here("Outputs", "network_metrics_weekly.rds"))
 # saveRDS(network_metrics_monthly, file = here("Outputs", "network_metrics_monthly.rds"))
@@ -667,7 +667,6 @@ walk(shared_metrics, function(m) {
 })
 
 ```
-
 ```{r annual-network-interactive, fig.width=16, fig.height=10, out.width="100%", warning=FALSE, message=FALSE}
 library(dplyr)
 library(igraph)
@@ -679,6 +678,7 @@ library(visNetwork)
 library(ggiraph)
 library(ggplot2)
 library(scales)
+library(grid)
 
 # ── 1. REGION CODE → LABEL ────────────────────────────────────────────────────
 region_labels <- c(
@@ -702,97 +702,183 @@ capact_nodes <- capact24 %>%
     dep         = first(dep),
     reg         = first(as.character(reg)),
     total_beds  = sum(LIT, na.rm = TRUE),
-    disciplines = paste(sort(unique(DISCIPLINE)), collapse = ", "),
+    #disciplines = paste(sort(unique(DISCIPLINE)), collapse = ", "),
     .groups     = "drop"
   ) %>%
   mutate(
     region = coalesce(region_labels[reg], paste0("Région ", reg))
   )
 
+table(capact_nodes$disciplines)
+
 nodes <- finess_geo %>%
-  dplyr::rename(fi = finessgeo, lon = coordxet, lat = coordyet) %>%
-  select(fi, lon, lat) %>%
+  dplyr::rename(fi = finessgeo, x = coordxet, y = coordyet) %>%
+  select(fi, x, y) %>%
+  filter(!is.na(x), !is.na(y)) %>%
+  sf::st_as_sf(coords = c("x", "y"), crs = 2154) %>%   # Lambert-93
+  sf::st_transform(4326) %>%                           # convert to lon/lat
+  mutate(
+    lon = sf::st_coordinates(.)[, 1],
+    lat = sf::st_coordinates(.)[, 2]
+  ) %>%
+  sf::st_drop_geometry() %>%
   inner_join(capact_nodes, by = "fi")
 
 # ── 3. ANNUAL CUMULATIVE EDGES ────────────────────────────────────────────────
 annual_edges <- weekly %>%
   group_by(finessGeo_origin, finessGeo_target) %>%
-  summarise(total_weight = sum(weight, na.rm = TRUE), .groups = "drop")
+  summarise(total_weight = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+  filter(finessGeo_origin != finessGeo_target)
 
-# ── 4. JOIN EDGES WITH NODE ATTRIBUTES ───────────────────────────────────────
-edges_geo <- annual_edges %>%
-  inner_join(nodes, by = c("finessGeo_origin" = "fi")) %>%
-  rename(lon_from = lon, lat_from = lat, region_from = region,
-         name_from = rs, disciplines_from = disciplines,
-         beds_from = total_beds) %>%
-  inner_join(nodes, by = c("finessGeo_target" = "fi")) %>%
-  rename(lon_to = lon, lat_to = lat, region_to = region,
-         name_to = rs, disciplines_to = disciplines,
-         beds_to = total_beds)
+# ── 4. FILTER TO STRONG EDGES FOR FASTER RENDER ──────────────────────────────
+# Keep only edges > 1 transfer, then top 10% by weight
+# Change 0.90 to 0.75 if you want more edges
+edges_gt1 <- annual_edges %>%
+  filter(total_weight > 1)
 
-# ── 5. FILTER: > 1 transfer, then above-median ───────────────────────────────
-# edges_gt1    <- edges_geo %>% filter(total_weight > 1)
-# med_threshold <- median(edges_gt1$total_weight, na.rm = TRUE)
-# edges_strong  <- edges_gt1 %>% filter(total_weight >= med_threshold)
+top_threshold <- quantile(edges_gt1$total_weight, 0.90, na.rm = TRUE)
+
+edges_strong <- edges_gt1 %>%
+  filter(total_weight >= top_threshold) %>%
+  arrange(desc(total_weight))
+
+active_ids <- unique(c(edges_strong$finessGeo_origin, edges_strong$finessGeo_target))
+
+nodes_strong <- nodes %>%
+  filter(fi %in% active_ids)
+
+# ── 5. JITTER ONLY NODES WITH IDENTICAL COORDINATES ──────────────────────────
+# Small deterministic offsets arranged in a circle around the original point.
+# This affects ONLY duplicated coordinates.
+
+jitter_radius <- 0.03
+# Increase to 2500 or 3000 if overlaps remain.
+# This assumes your coordinates are in a projected CRS with meter-like units.
+# If your coords are already lon/lat degrees, use something tiny like 0.02 instead.
+
+nodes_strong_jitter <- nodes_strong %>%
+  group_by(lon, lat) %>%
+  mutate(
+    n_overlap = n(),
+    dup_index = row_number(),
+    angle = if_else(
+      n_overlap == 1,
+      0,
+      2 * pi * (dup_index - 1) / n_overlap
+    ),
+    lon_plot = if_else(
+      n_overlap == 1,
+      lon,
+      lon + jitter_radius * cos(angle)
+    ),
+    lat_plot = if_else(
+      n_overlap == 1,
+      lat,
+      lat + jitter_radius * sin(angle)
+    )
+  ) %>%
+  ungroup()
+
+# ── 6. JOIN EDGES WITH JITTERED NODE ATTRIBUTES ──────────────────────────────
+edges_geo <- edges_strong %>%
+  inner_join(
+    nodes_strong_jitter %>%
+      select(fi, lon_from = lon_plot, lat_from = lat_plot,
+             region_from = region, name_from = rs,
+             disciplines_from = disciplines, beds_from = total_beds),
+    by = c("finessGeo_origin" = "fi")
+  ) %>%
+  inner_join(
+    nodes_strong_jitter %>%
+      select(fi, lon_to = lon_plot, lat_to = lat_plot,
+             region_to = region, name_to = rs,
+             disciplines_to = disciplines, beds_to = total_beds),
+    by = c("finessGeo_target" = "fi")
+  )
+
+
+#DIAGNOSTIC if the lat and long is correct
+#Comment out if it's correct now
+# nodes_strong_jitter %>%
+#   summarise(
+#     min_lon_plot = min(lon_plot, na.rm = TRUE),
+#     max_lon_plot = max(lon_plot, na.rm = TRUE),
+#     min_lat_plot = min(lat_plot, na.rm = TRUE),
+#     max_lat_plot = max(lat_plot, na.rm = TRUE)
+#   )
 # 
-# active_ids   <- unique(c(edges_strong$finessGeo_origin,
-#                           edges_strong$finessGeo_target))
-# nodes_strong <- nodes %>% filter(fi %in% active_ids)
+# edges_geo %>%
+#   summarise(
+#     min_lon_from = min(lon_from, na.rm = TRUE),
+#     max_lon_from = max(lon_from, na.rm = TRUE),
+#     min_lat_from = min(lat_from, na.rm = TRUE),
+#     max_lat_from = max(lat_from, na.rm = TRUE),
+#     min_lon_to   = min(lon_to, na.rm = TRUE),
+#     max_lon_to   = max(lon_to, na.rm = TRUE),
+#     min_lat_to   = min(lat_to, na.rm = TRUE),
+#     max_lat_to   = max(lat_to, na.rm = TRUE)
+ # )
+```
 
 
-#CHANGING TO TOP 25 percentile
-edges_gt1     <- edges_geo %>% filter(total_weight > 1)
-top25_threshold <- quantile(edges_gt1$total_weight, 0.75, na.rm = TRUE)
-edges_strong    <- edges_gt1 %>% filter(total_weight >= top25_threshold)
+```{r next viz section}
 
-active_ids   <- unique(c(edges_strong$finessGeo_origin,
-                          edges_strong$finessGeo_target))
-nodes_strong <- nodes %>% filter(fi %in% active_ids)
-
-# ── 6. COLOUR PALETTE BY REGION ───────────────────────────────────────────────
-province_levels <- sort(unique(nodes_strong$region))
+# ── 7. COLOUR PALETTE BY REGION ───────────────────────────────────────────────
+province_levels <- sort(unique(nodes_strong_jitter$region))
 n_prov          <- length(province_levels)
 base_cols       <- brewer.pal(min(max(n_prov, 3), 12), "Paired")
 if (n_prov > 12) base_cols <- colorRampPalette(base_cols)(n_prov)
+
 province_colors <- setNames(base_cols[seq_len(n_prov)], province_levels)
 
-# ── 7A. GGIRAPH — NETWORK OVERLAID ON MAP ────────────────────────────────────
+# ── 8. FRANCE MAP ─────────────────────────────────────────────────────────────
 france <- rnaturalearth::ne_states(country = "France", returnclass = "sf") %>%
   filter(!name %in% c("Guyane", "Martinique", "Guadeloupe",
-                       "La Réunion", "Mayotte")) %>%
+                      "La Réunion", "Mayotte")) %>%
   sf::st_transform(4326)
 
-edges_for_plot <- edges_strong %>%
+#Create a France Outline
+france_outline <- france %>%
+  summarise(geometry = st_union(geometry))
+
+# If your node coordinates are NOT already in WGS84 lon/lat, you must transform them first.
+# For now I preserve your structure exactly as written.
+
+# ── 9. PLOT TABLES ────────────────────────────────────────────────────────────
+edges_for_plot <- edges_geo %>%
   mutate(
     ggtitle = paste0(
-      "<b>From:</b> ",      name_from, " (", region_from, ")<br>",
-      "<b>To:</b> ",        name_to,   " (", region_to,   ")<br>",
+      "<b>From:</b> ", name_from, " (", region_from, ")<br>",
+      "<b>To:</b> ",   name_to,   " (", region_to,   ")<br>",
       "<b>Transfers:</b> ", format(total_weight, big.mark = ",")
     ),
-    transfer = rescale(total_weight, to = c(0.1, 1.5))
+    edge_size = rescale(total_weight, to = c(0.25, 1.4))
   )
 
-nodes_for_plot <- nodes_strong %>%
+nodes_for_plot <- nodes_strong_jitter %>%
   mutate(
     ggtitle = paste0(
       "<b>", rs, "</b><br>",
-      "Region: ",      region,      "<br>",
+      "Region: ", region, "<br>",
       "Disciplines: ", disciplines, "<br>",
-      "Beds: ",        total_beds
+      "Beds: ", total_beds,
+      if_else(n_overlap > 1,
+              paste0("<br><i>Shared original location with ", n_overlap - 1, " nearby facility/facilities</i>"),
+              "")
     ),
-    id = fi
+    id = fi,
+    node_size = rescale(total_beds, to = c(1.8, 5.2))
   )
 
-mapplot <- ggplot(nodes_for_plot) +
-  # France basemap
+# ── 10. GGIRAPH MAP ───────────────────────────────────────────────────────────
+mapplot <- ggplot() +
   geom_sf(
     data        = france,
-    fill        = "grey94",
-    colour      = "white",
+    fill        = "grey80",
+    colour      = "grey40",
     linewidth   = 0.3,
     inherit.aes = FALSE
   ) +
-  # Edges as interactive curves
   geom_curve_interactive(
     data = edges_for_plot,
     aes(
@@ -803,46 +889,46 @@ mapplot <- ggplot(nodes_for_plot) +
       tooltip = ggtitle,
       colour  = region_from
     ),
-    size      = ifelse(
-      edges_for_plot$transfer < 0.5,
-      edges_for_plot$transfer,
-      edges_for_plot$transfer - 0.2
-    ),
-    curvature = 0.33,
-    alpha     = 0.6,
+    linewidth = edges_for_plot$edge_size,
+    curvature = 0.22,
+    alpha     = 0.55,
     arrow     = arrow(length = unit(0.05, "inches"), type = "closed")
   ) +
-  scale_colour_manual(values = province_colors, name = "Sender Region",
-                      guide  = "none") +   # edges coloured but no legend clutter
-  # Nodes as interactive points
+  scale_colour_manual(
+    values = province_colors,
+    name   = "Sender Region",
+    guide  = "none"
+  ) +
   geom_point_interactive(
+    data = nodes_for_plot,
     aes(
-      x       = lon,
-      y       = lat,
+      x       = lon_plot,
+      y       = lat_plot,
       tooltip = ggtitle,
       data_id = id,
       fill    = region
     ),
-    colour = "white",
+    colour = "black",
     shape  = 21,
-    size   = rescale(nodes_for_plot$total_beds,
-                     to = c(1.5, 5), from = range(nodes_for_plot$total_beds,
-                                                    na.rm = TRUE)),
-    alpha  = 0.85,
+    size   = nodes_for_plot$node_size,
+    alpha  = 0.9,
     stroke = 0.3
   ) +
   scale_fill_manual(values = province_colors, name = "Region") +
-  coord_sf(xlim = c(-5.5, 10), ylim = c(41, 52),
-           crs  = sf::st_crs(4326)) +
+  coord_sf(
+    xlim = c(-5.5, 10),
+    ylim = c(41, 52),
+    crs  = sf::st_crs(4326)
+  ) +
   labs(
     title    = "Annual Hospital Transfer Network — France 2024",
-    subtitle = "Top 25% edges by transfer volume. Hover nodes & edges for details."
+    subtitle = "Top 10% edges by transfer volume. Only overlapping facilities are offset slightly."
   ) +
   theme_void() +
   theme(
-    plot.title    = element_text(hjust = 0.5, size = 12, face = "bold"),
-    plot.subtitle = element_text(hjust = 0.5, size = 8,  face = "italic"),
-    legend.box    = "vertical",
+    plot.title      = element_text(hjust = 0.5, size = 12, face = "bold"),
+    plot.subtitle   = element_text(hjust = 0.5, size = 8, face = "italic"),
+    legend.box      = "vertical",
     legend.position = "right"
   ) +
   guides(
@@ -852,159 +938,28 @@ mapplot <- ggplot(nodes_for_plot) +
       ncol = 1
     )
   )
-
 girafe(
-  code       = print(mapplot),
-  width_svg  = 12,
+  ggobj = mapplot,
+  width_svg = 12,
   height_svg = 9
 ) %>%
   girafe_options(
-    opts_hover(css     = "fill:#D1E231; stroke:black; stroke-width:1.5;"),
-    opts_hover_inv(css = "opacity:0.15;"),
+    opts_hover(css = "stroke:black; stroke-width:1.2;"),
+    opts_hover_inv(css = "opacity:0.18;"),
     opts_tooltip(
-      opacity         = 0.85,
-      delay_mouseover = 200,
-      delay_mouseout  = 150,
-      css             = "background:white; border:1px solid #aaa;
-                         border-radius:6px; padding:8px;
-                         font-size:12px; font-family:sans-serif;"
+      opacity = 0.95,
+      delay_mouseover = 150,
+      delay_mouseout = 100,
+      use_fill = TRUE,
+      css = "background-color:#6B6B6B;
+             color:black;
+             border:1px solid #3A3A3A;
+             border-radius:6px;
+             padding:8px;
+             font-size:12px;
+             font-family:sans-serif;"
     ),
-    opts_zoom(min = 1, max = 10),
+    opts_zoom(min = 1, max = 8),
     opts_sizing(rescale = TRUE, width = 1)
   )
-
-# ── 7C. VISNETWORK — FRUCHTERMAN-REINGOLD LAYOUT ─────────────────────────────
-g_igraph <- igraph::graph_from_data_frame(
-  d        = edges_strong %>%
-               select(finessGeo_origin, finessGeo_target, total_weight),
-  directed = TRUE,
-  vertices = nodes_strong %>% rename(name = fi)
-)
-
-set.seed(42)
-fr_layout <- igraph::layout_with_fr(g_igraph)
-
-fr_coords <- data.frame(
-  fi = V(g_igraph)$name,
-  x  = rescale(fr_layout[, 1], to = c(-1000, 1000)),
-  y  = rescale(fr_layout[, 2], to = c(-1000, 1000))
-)
-
-vis_nodes_fr <- nodes_strong %>%
-  inner_join(fr_coords, by = "fi") %>%
-  transmute(
-    id    = fi,
-    label = "",
-    title = paste0(
-      "<b>", rs, "</b><br>",
-      "Region: ",      region,      "<br>",
-      "Disciplines: ", disciplines, "<br>",
-      "Beds: ",        total_beds
-    ),
-    x, y,
-    color.background = province_colors[region],
-    color.border     = "white",
-    size             = 8
-  )
-
-vis_edges_fr <- edges_strong %>%
-  transmute(
-    from  = finessGeo_origin,
-    to    = finessGeo_target,
-    title = paste0(
-      "<b>From:</b> ",      name_from, "<br>",
-      "<b>To:</b> ",        name_to,   "<br>",
-      "<b>Transfers:</b> ", format(total_weight, big.mark = ",")
-    ),
-    value  = rescale(total_weight, to = c(0.5, 8)),
-    color  = province_colors[region_from],
-    arrows = "to"
-  )
-
-visNetwork(vis_nodes_fr, vis_edges_fr,
-           width = "100%", height = "700px",
-           main  = "Hospital Transfer Network — Fruchterman-Reingold Layout") %>%
-  visNodes(borderWidth = 0.5) %>%
-  visEdges(smooth  = list(enabled = TRUE, type = "curvedCW", roundness = 0.1),
-           scaling = list(min = 0.5, max = 6)) %>%
-  visOptions(highlightNearest = list(enabled = TRUE, degree = 1,
-                                      hover = TRUE)) %>%
-  visPhysics(enabled = FALSE) %>%
-  visInteraction(navigationButtons = TRUE, tooltipDelay = 100) %>%
-  visLegend(
-    addNodes = lapply(seq_along(province_colors), function(i) {
-      list(label = names(province_colors)[i],
-           color = province_colors[i], shape = "dot", size = 12)
-    }),
-    useGroups = FALSE, width = 0.15, position = "right"
-  )
-
-
-# render ggiraph to a widget
-map_widget <- girafe(
-  ggobj      = p_map,
-  width_svg  = 14, height_svg = 9,
-  options = list(
-    opts_hover(css = "stroke-width:2.5; opacity:1;"),
-    opts_hover_inv(css = "opacity:0.15;"),
-    opts_tooltip(
-      css = "background:white; border:1px solid #aaa; border-radius:6px;
-             padding:8px; font-size:13px; font-family:sans-serif;",
-      use_fill = FALSE
-    ),
-    opts_sizing(rescale = TRUE)
-  )
-)
-
-# build visNetwork geo widget
-vis_geo_widget <- visNetwork(vis_nodes_geo, vis_edges_geo,
-           width = "100%", height = "700px",
-           main  = "Hospital Transfer Network — Geographic Layout") %>%
-  visNodes(borderWidth = 0.5) %>%
-  visEdges(smooth  = list(enabled = TRUE, type = "curvedCW", roundness = 0.1),
-           scaling = list(min = 0.5, max = 6)) %>%
-  visOptions(highlightNearest = list(enabled = TRUE, degree = 1, hover = TRUE)) %>%
-  visPhysics(enabled = FALSE) %>%
-  visInteraction(navigationButtons = TRUE, tooltipDelay = 100) %>%
-  visLegend(
-    addNodes = lapply(seq_along(province_colors), function(i) {
-      list(label = names(province_colors)[i],
-           color = province_colors[i], shape = "dot", size = 12)
-    }),
-    useGroups = FALSE, width = 0.15, position = "right"
-  )
-
-# build visNetwork FR widget  
-vis_fr_widget <- visNetwork(vis_nodes_fr, vis_edges_fr,
-           width = "100%", height = "700px",
-           main  = "Hospital Transfer Network — Fruchterman-Reingold Layout") %>%
-  visNodes(borderWidth = 0.5) %>%
-  visEdges(smooth  = list(enabled = TRUE, type = "curvedCW", roundness = 0.1),
-           scaling = list(min = 0.5, max = 6)) %>%
-  visOptions(highlightNearest = list(enabled = TRUE, degree = 1, hover = TRUE)) %>%
-  visPhysics(enabled = FALSE) %>%
-  visInteraction(navigationButtons = TRUE, tooltipDelay = 100) %>%
-  visLegend(
-    addNodes = lapply(seq_along(province_colors), function(i) {
-      list(label = names(province_colors)[i],
-           color = province_colors[i], shape = "dot", size = 12)
-    }),
-    useGroups = FALSE, width = 0.15, position = "right"
-  )
-
-# combine all three into one scrollable HTML block
-browsable(
-  tagList(
-    tags$h3("Map Overlay", style = "font-family:sans-serif; text-align:center;"),
-    map_widget,
-    tags$hr(),
-    tags$h3("Network — Geographic Layout",
-            style = "font-family:sans-serif; text-align:center;"),
-    vis_geo_widget,
-    tags$hr(),
-    tags$h3("Network — Fruchterman-Reingold Layout",
-            style = "font-family:sans-serif; text-align:center;"),
-    vis_fr_widget
-  )
-)
 ```
