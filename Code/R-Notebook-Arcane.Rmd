@@ -6,17 +6,10 @@ output:
     mathjax: default
 ---
 
----
-title: "Math Test"
-output:
-  html_document:
-    mathjax: default
----
 
+#### Exploratory Data Analysis of the Temporal Direct Network Data
 
-## Exploratory Data Analysis of the Temporal Direct Network Data
-
-```{r setup, include = FALSE}
+```{r setup, include = FALSE,warning = FALSE, message = FALSE}
 
 # FIRST: MAKE SURE YOU OPEN THIS CODE FROM THE ARCANE-TEMPORAL-NETWORK PROJECT
 # SECOND: make sure you download  the transfer datasets here #https://ehespfr-my.sharepoint.com/personal/shrichand_bhuria_ehesp_fr/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fshrichand%5Fbhuria%5Fehesp%5Ffr%2FDocuments%2FHBN%5F2024%5Fdata%5Fsharing&ga=1 
@@ -42,12 +35,12 @@ weekly = read_csv(here("Datasets", "hbn_direct_transfer_2024","HBN_weekly_slidin
 
 We are running exploratory data analyses of the French transfer networks. OUr data comes from the direct transfers of all France hospitals in 2024, all within a 7-day time frame aggregation within one year. Therefore, our first analysis would be a descriptive analyses of the basic network characteristics.
 
-### Weekly Transfer Window Data 
+##### Weekly Transfer Window Data 
 
 Let's explore the direct transfers with 7-day (weekly) time window,starting for all year
 timespan. 
 
-```{r reading hospital data, include = FALSE}
+```{r reading hospital data, include = FALSE,warning = FALSE, message = FALSE}
 
 #Available here: https://drees2-sgsocialgouv.opendatasoft.com/explore/dataset/708_bases-statistiques-sae/information/
 # CAPACT24 appears to refer to a capacity variable for full inpatient hospitalization, specifically the number of installed beds for hospitalisation complète (24 hours or more) in the relevant unit or activity table. The SAE variable list snippet for 2024 shows the label beginning with “Nombre de lits installés en hospitalisation complète…”, and the SAE documentation explains that the survey collects establishments’ capacities, activity, technical platforms, and staffing through thematic tables.
@@ -63,7 +56,7 @@ finess_geo = read.csv(here("Datasets", "finessGeo_data.csv"))
 head(finess_geo)
 ```
 
-```{r weekly, echo = FALSE, warning = FALSE}
+```{r weekly, echo = FALSE, warning = FALSE, message = FALSE}
 # Packages
 library(dplyr)
 library(lubridate)
@@ -112,12 +105,12 @@ summarize_transfer_network <- function(data, output_name = NULL, unique_edges = 
 weekly1  <- summarize_transfer_network(weekly,  output_name = "summary_weekly",  unique_edges = TRUE)
 monthly1 <- summarize_transfer_network(monthly, output_name = "summary_monthly", unique_edges = TRUE)
 ```
-### Temporal Analysis of Trends by Weekly Time Window
+##### Temporal Analysis of Trends by Weekly Time Window
 
 Looking at the averages and summary statistics trend for day-to-day trends to see the ups and downs 
 of the number of nodes, edges, transfers, and otehers
 
-```{r weekly summary, echo = FALSE}
+```{r weekly summary, echo = FALSE, warning = FALSE, message = FALSE}
 library(rlang)
 
 make_summary_stats <- function(data,
@@ -302,7 +295,7 @@ plots_monthly <- plot_summary_metrics(
 )
 ```
 
-### Calculate the centrality measures statistics for the network data
+##### Calculate the centrality measures statistics for the network data
 
 ```{r network stats, include = FALSE}
 # packages used
@@ -443,7 +436,7 @@ network_metrics_weekly =  readRDS(here("Outputs", "network_metrics_weekly.rds"))
 network_metrics_monthly = readRDS(here("Outputs", "network_metrics_monthly.rds"))
 ```
 
-## Network metrics definitions (weighted, directed hospital transfer network)
+#### Network metrics definitions (weighted, directed hospital transfer network)
 Let $G_t = (V_t, E_t)$ be the **directed, weighted** hospital transfer network for time window $t$.
 
 - **Nodes** ($V_t$): hospitals (e.g., `finessGeo`)
@@ -453,7 +446,7 @@ Let $G_t = (V_t, E_t)$ be the **directed, weighted** hospital transfer network f
 
 ---
 
-## `n_nodes` — Number of active nodes
+#### `n_nodes` — Number of active nodes
 
 **Definition:**
 
@@ -465,7 +458,7 @@ $$
 
 ---
 
-## `n_edges` — Number of directed edges
+###### `n_edges` — Number of directed edges
 
 **Definition:**
 
@@ -479,7 +472,7 @@ where each directed pair $(i \rightarrow j)$ with $w_{ij,t} > 0$ counts as one e
 
 ---
 
-## `total_transfers` — Total transfer volume (sum of weights)
+#### `total_transfers` — Total transfer volume (sum of weights)
 
 **Definition:**
 
@@ -491,7 +484,7 @@ $$
 
 ---
 
-## `mean_weight` — Mean edge weight
+###### `mean_weight` — Mean edge weight
 
 **Definition:**
 
@@ -503,7 +496,7 @@ $$
 
 ---
 
-## `median_weight` — Median edge weight
+#### `median_weight` — Median edge weight
 
 **Definition:**
 
@@ -517,7 +510,7 @@ $$
 
 ---
 
-## `density` — Directed network density (unweighted definition)
+#### `density` — Directed network density (unweighted definition)
 
 **Definition** (standard directed density without self-loops):
 
@@ -534,7 +527,7 @@ $$
 
 ---
 
-## Optional clarifications
+#### Optional clarifications
 
 - **Directed:** $(i \rightarrow j)$ is different from $(j \rightarrow i)$
 - **Weighted:** edges carry magnitudes (number of transfers)
@@ -543,8 +536,8 @@ $$
 
 
 
-## Graphing all the Stats
-```{r graph daybyday, echo = FALSE,  fig.width=16, fig.height=5, out.width="100%"}
+#### Graphing all the Stats
+```{r graph daybyday, echo = FALSE,  fig.width=16, fig.height=5, out.width="100%",warning = FALSE, message = FALSE}
 
 season_colors <- c(
   "Winter" = "#1f78b4",
@@ -667,7 +660,12 @@ walk(shared_metrics, function(m) {
 })
 
 ```
-```{r annual-network-interactive, fig.width=16, fig.height=10, out.width="100%", warning=FALSE, message=FALSE}
+
+### Visualization of Network Data on the Map of France
+
+In this visualization, we keep only the top 10% of transfers
+
+```{r annual-network-interactive, echo = FALSE, fig.width=16, fig.height=10, out.width="100%", warning=FALSE, message=FALSE}
 library(dplyr)
 library(igraph)
 library(sf)
@@ -679,7 +677,11 @@ library(ggiraph)
 library(ggplot2)
 library(scales)
 library(grid)
-
+# 
+# 
+# install.packages(c("rnaturalearth", "rnaturalearthdata", "remotes"))
+# 
+# remotes::install_github("ropensci/rnaturalearthhires")
 # ── 1. REGION CODE → LABEL ────────────────────────────────────────────────────
 region_labels <- c(
   "11" = "Île-de-France",            "24" = "Centre-Val de Loire",
@@ -709,7 +711,7 @@ capact_nodes <- capact24 %>%
     region = coalesce(region_labels[reg], paste0("Région ", reg))
   )
 
-table(capact_nodes$disciplines)
+#table(capact_nodes$disciplines)
 
 nodes <- finess_geo %>%
   dplyr::rename(fi = finessgeo, x = coordxet, y = coordyet) %>%
@@ -785,14 +787,16 @@ edges_geo <- edges_strong %>%
     nodes_strong_jitter %>%
       select(fi, lon_from = lon_plot, lat_from = lat_plot,
              region_from = region, name_from = rs,
-             disciplines_from = disciplines, beds_from = total_beds),
+             #disciplines_from = disciplines, 
+             beds_from = total_beds),
     by = c("finessGeo_origin" = "fi")
   ) %>%
   inner_join(
     nodes_strong_jitter %>%
       select(fi, lon_to = lon_plot, lat_to = lat_plot,
              region_to = region, name_to = rs,
-             disciplines_to = disciplines, beds_to = total_beds),
+             #disciplines_to = disciplines, 
+             beds_to = total_beds),
     by = c("finessGeo_target" = "fi")
   )
 
@@ -818,10 +822,6 @@ edges_geo <- edges_strong %>%
 #     min_lat_to   = min(lat_to, na.rm = TRUE),
 #     max_lat_to   = max(lat_to, na.rm = TRUE)
  # )
-```
-
-
-```{r next viz section}
 
 # ── 7. COLOUR PALETTE BY REGION ───────────────────────────────────────────────
 province_levels <- sort(unique(nodes_strong_jitter$region))
@@ -860,7 +860,6 @@ nodes_for_plot <- nodes_strong_jitter %>%
     ggtitle = paste0(
       "<b>", rs, "</b><br>",
       "Region: ", region, "<br>",
-      "Disciplines: ", disciplines, "<br>",
       "Beds: ", total_beds,
       if_else(n_overlap > 1,
               paste0("<br><i>Shared original location with ", n_overlap - 1, " nearby facility/facilities</i>"),
@@ -961,5 +960,251 @@ girafe(
     ),
     opts_zoom(min = 1, max = 8),
     opts_sizing(rescale = TRUE, width = 1)
+  )
+```
+
+```{r viznetwork static, echo = FALSE, message = FALSE, warning = FALSE}
+library(visNetwork)
+library(dplyr)
+library(scales)
+library(purrr)
+
+set.seed(42)
+
+vis_nodes_fd <- nodes_strong_jitter %>%
+  mutate(
+    region_col = unname(province_colors[region]),
+    node_size  = rescale(sqrt(total_beds), to = c(8, 30))
+  ) %>%
+  transmute(
+    id    = fi,
+    label = "",
+    title = paste0(
+      "<b>", rs, "</b><br>",
+      "Region: ", region, "<br>",
+      "Beds: ", format(total_beds, big.mark = ",")
+    ),
+    value = node_size,
+    shape = "dot",
+    color = purrr::map(
+      region_col,
+      ~ list(
+        background = .x,
+        border = "black",
+        highlight = list(background = .x, border = "black"),
+        hover     = list(background = .x, border = "black")
+      )
+    )
+  )
+
+vis_edges_fd <- edges_geo %>%
+  mutate(edge_col = unname(province_colors[region_from])) %>%
+  transmute(
+    from  = finessGeo_origin,
+    to    = finessGeo_target,
+    title = paste0(
+      "<b>From:</b> ", name_from, " (", region_from, ")<br>",
+      "<b>To:</b> ", name_to, " (", region_to, ")<br>",
+      "<b>Transferred patients:</b> ", format(total_weight, big.mark = ",")
+    ),
+    value = rescale(total_weight, to = c(1, 5)),
+    arrows = "to",
+    color = purrr::map(
+      edge_col,
+      ~ list(
+        color = .x,
+        highlight = .x,
+        hover = .x,
+        opacity = 0.65
+      )
+    )
+  )
+
+visNetwork(
+  vis_nodes_fd,
+  vis_edges_fd,
+  width   = "100%",
+  height  = "750px",
+  main    = "Hospital Transfer Network — Fruchterman-Reingold Layout",
+  submain = "Same edge filtering as the geographic network"
+) %>%
+  visIgraphLayout(
+    layout = "layout_with_fr",
+    randomSeed = 42
+  ) %>%
+  visNodes(
+    borderWidth = 0.8,
+    scaling = list(
+      min = 8,
+      max = 30,
+      label = list(enabled = FALSE)
+    )
+  ) %>%
+  visEdges(
+    scaling = list(min = 1, max = 5),
+    smooth = list(
+      enabled = TRUE,
+      type = "dynamic",
+      roundness = 0.12
+    )
+  ) %>%
+  visOptions(
+    highlightNearest = list(enabled = TRUE, degree = 1, hover = TRUE),
+    nodesIdSelection = FALSE
+  ) %>%
+  visInteraction(
+    navigationButtons = TRUE,
+    tooltipDelay = 100,
+    hover = TRUE,
+    dragNodes = FALSE
+  ) %>%
+  visPhysics(enabled = FALSE) %>%
+  visLegend(
+    addNodes = lapply(names(province_colors), function(reg_name) {
+      list(
+        label = reg_name,
+        shape = "dot",
+        size  = 15,
+        color = list(
+          background = unname(province_colors[reg_name]),
+          border = "black"
+        )
+      )
+    }),
+    useGroups = FALSE,
+    width = 0.18,
+    position = "right"
+  )
+```
+
+
+```{r visnetwork slow, echo = FALSE}
+
+library(visNetwork)
+library(dplyr)
+library(scales)
+library(purrr)
+
+vis_nodes_fd <- nodes_strong_jitter %>%
+  mutate(
+    region_col = unname(province_colors[region]),
+    beds_scaled = rescale(total_beds, to = c(8, 30))
+  ) %>%
+  transmute(
+    id    = fi,
+    label = "",
+    title = paste0(
+      "<b>", rs, "</b><br>",
+      "Region: ", region, "<br>",
+      "Beds: ", format(total_beds, big.mark = ",")
+    ),
+    value = beds_scaled,
+    shape = "dot",
+    color = purrr::map(
+      region_col,
+      ~ list(
+        background = .x,
+        border = "black",
+        highlight = list(background = .x, border = "black"),
+        hover     = list(background = .x, border = "black")
+      )
+    )
+  )
+
+vis_edges_fd <- edges_geo %>%
+  mutate(edge_col = unname(province_colors[region_from])) %>%
+  transmute(
+    from  = finessGeo_origin,
+    to    = finessGeo_target,
+    title = paste0(
+      "<b>From:</b> ", name_from, " (", region_from, ")<br>",
+      "<b>To:</b> ", name_to, " (", region_to, ")<br>",
+      "<b>Transferred patients:</b> ", format(total_weight, big.mark = ",")
+    ),
+    value = rescale(total_weight, to = c(1, 5)),
+    arrows = "to",
+    color = purrr::map(
+      edge_col,
+      ~ list(
+        color = .x,
+        highlight = .x,
+        hover = .x,
+        opacity = 0.65
+      )
+    )
+  )
+
+visNetwork(
+  vis_nodes_fd,
+  vis_edges_fd,
+  width   = "100%",
+  height  = "750px",
+  main    = "Hospital Transfer Network — Force-Directed Layout",
+  submain = "Same edge filtering as the geographic network"
+) %>%
+  visNodes(
+    borderWidth = 0.8,
+    scaling = list(
+      min = 8,
+      max = 30,
+      label = list(enabled = FALSE)
+    )
+  ) %>%
+  visEdges(
+    scaling = list(min = 1, max = 5),
+    smooth = list(
+      enabled = TRUE,
+      type = "dynamic",
+      roundness = 0.12
+    )
+  ) %>%
+  visOptions(
+    highlightNearest = list(enabled = TRUE, degree = 1, hover = TRUE),
+    nodesIdSelection = FALSE
+  ) %>%
+  visInteraction(
+    navigationButtons = TRUE,
+    tooltipDelay = 100,
+    hover = TRUE,
+    dragNodes = FALSE
+  ) %>%
+  visPhysics(
+    enabled = TRUE,
+    solver = "forceAtlas2Based",
+    forceAtlas2Based = list(
+      gravitationalConstant = -20,
+      centralGravity = 0.003,
+      springLength = 70,
+      springConstant = 0.04,
+      damping = 0.9,
+      avoidOverlap = 1
+    ),
+    stabilization = list(
+      enabled = TRUE,
+      iterations = 150,
+      updateInterval = 25,
+      fit = TRUE
+    ),
+    timestep = 0.7,
+    adaptiveTimestep = TRUE
+  ) %>%
+  visEvents(
+    stabilized = "function () { this.setOptions({physics:false}); }"
+  ) %>%
+  visLegend(
+    addNodes = lapply(names(province_colors), function(reg_name) {
+      list(
+        label = reg_name,
+        shape = "dot",
+        size  = 15,
+        color = list(
+          background = unname(province_colors[reg_name]),
+          border = "black"
+        )
+      )
+    }),
+    useGroups = FALSE,
+    width = 0.18,
+    position = "right"
   )
 ```
