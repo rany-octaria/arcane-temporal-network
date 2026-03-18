@@ -17,14 +17,30 @@ output:
 # Download it into the Datasets folder. I can't sync it into GitHub because the files were too large
 # Loading libraries
 library(tidyverse)
-library(lubridate)
-library(ggplot2)
-library(igraph)
 library(here)
 library(purrr)     # map_dfr
 library(igraph)
 library(patchwork)   # side-by-side layout
+library(dplyr)
+library(igraph)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(RColorBrewer)
+library(visNetwork)
+library(ggiraph)
+library(ggplot2)
+library(scales)
+library(grid)
+library(lubridate)
+library(tibble)
+library(visNetwork)
+library(scales)
+library(purrr)
+library(readr)
 
+# install.packages(c("rnaturalearth", "rnaturalearthdata", "remotes"))
+# remotes::install_github("ropensci/rnaturalearthhires")
 
 options(scipen = 999)
 # Import the CSV datasets
@@ -54,14 +70,14 @@ write.csv(capact24, file = here("Datasets", "CAPACT24.csv"))
 #Reading in Finess Georgaphical Coords data
 finess_geo = read.csv(here("Datasets", "finessGeo_data.csv"))
 head(finess_geo)
+
+IUM_hospital_info_2024 <- read_delim("Datasets/IUM_hospital_info_2024.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+View(IUM_hospital_info_2024)
+
 ```
 
 ```{r weekly, echo = FALSE, warning = FALSE, message = FALSE}
-# Packages
-library(dplyr)
-library(lubridate)
-library(tibble)
-
 summarize_transfer_network <- function(data, output_name = NULL, unique_edges = TRUE) {
   
   summary_df <- data %>%
@@ -298,8 +314,7 @@ plots_monthly <- plot_summary_metrics(
 ##### Calculate the centrality measures statistics for the network data
 
 ```{r network stats, include = FALSE}
-# packages used
-   # graph_from_data_frame, degree, edge_density, distances, transitivity, components
+
 calculate_network_metrics <- function(df) {
 
   df %>%
@@ -666,22 +681,7 @@ walk(shared_metrics, function(m) {
 In this visualization, we keep only the top 10% of transfers
 
 ```{r annual-network-interactive, echo = FALSE, fig.width=16, fig.height=10, out.width="100%", warning=FALSE, message=FALSE}
-library(dplyr)
-library(igraph)
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(RColorBrewer)
-library(visNetwork)
-library(ggiraph)
-library(ggplot2)
-library(scales)
-library(grid)
-# 
-# 
-# install.packages(c("rnaturalearth", "rnaturalearthdata", "remotes"))
-# 
-# remotes::install_github("ropensci/rnaturalearthhires")
+
 # ── 1. REGION CODE → LABEL ────────────────────────────────────────────────────
 region_labels <- c(
   "11" = "Île-de-France",            "24" = "Centre-Val de Loire",
@@ -800,28 +800,6 @@ edges_geo <- edges_strong %>%
     by = c("finessGeo_target" = "fi")
   )
 
-
-#DIAGNOSTIC if the lat and long is correct
-#Comment out if it's correct now
-# nodes_strong_jitter %>%
-#   summarise(
-#     min_lon_plot = min(lon_plot, na.rm = TRUE),
-#     max_lon_plot = max(lon_plot, na.rm = TRUE),
-#     min_lat_plot = min(lat_plot, na.rm = TRUE),
-#     max_lat_plot = max(lat_plot, na.rm = TRUE)
-#   )
-# 
-# edges_geo %>%
-#   summarise(
-#     min_lon_from = min(lon_from, na.rm = TRUE),
-#     max_lon_from = max(lon_from, na.rm = TRUE),
-#     min_lat_from = min(lat_from, na.rm = TRUE),
-#     max_lat_from = max(lat_from, na.rm = TRUE),
-#     min_lon_to   = min(lon_to, na.rm = TRUE),
-#     max_lon_to   = max(lon_to, na.rm = TRUE),
-#     min_lat_to   = min(lat_to, na.rm = TRUE),
-#     max_lat_to   = max(lat_to, na.rm = TRUE)
- # )
 
 # ── 7. COLOUR PALETTE BY REGION ───────────────────────────────────────────────
 province_levels <- sort(unique(nodes_strong_jitter$region))
@@ -964,10 +942,6 @@ girafe(
 ```
 
 ```{r viznetwork static, echo = FALSE, message = FALSE, warning = FALSE}
-library(visNetwork)
-library(dplyr)
-library(scales)
-library(purrr)
 
 set.seed(42)
 
@@ -1080,10 +1054,6 @@ visNetwork(
 
 ```{r visnetwork slow, echo = FALSE}
 
-library(visNetwork)
-library(dplyr)
-library(scales)
-library(purrr)
 
 vis_nodes_fd <- nodes_strong_jitter %>%
   mutate(
