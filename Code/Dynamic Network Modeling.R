@@ -1,219 +1,14 @@
-# Modeling Code
-# Tinkering with the Modeling of the network over many days
-# Rany Octaria
-# Le CNAM
+#Dynamic Temporal Network Model Code
 
-#The facility is grouped by finessGeo
-
-# FIRST: MAKE SURE YOU OPEN THIS CODE FROM THE ARCANE-TEMPORAL-NETWORK PROJECT
-# SECOND: make sure you download  the transfer datasets here #https://ehespfr-my.sharepoint.com/personal/shrichand_bhuria_ehesp_fr/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fshrichand%5Fbhuria%5Fehesp%5Ffr%2FDocuments%2FHBN%5F2024%5Fdata%5Fsharing&ga=1 
-
-# Download it into the Datasets folder. I can't sync it into GitHub because the files were too large
-
-library(here)
-library(purrr)     # map_dfr
-library(igraph)
-library(patchwork)   # side-by-side layout
-library(dplyr)
-library(igraph)
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(RColorBrewer)
-library(visNetwork)
-library(ggiraph)
-library(ggplot2)
-library(scales)
-library(grid)
-library(lubridate)
-library(tibble)
-library(scales)
-library(purrr)
-library(readr)
-library(stringr)
-# install.packages(c("rnaturalearth", "rnaturalearthdata", "remotes"))
-# remotes::install_github("ropensci/rnaturalearthhires")
-
-options(scipen = 999)
-# Import the CSV datasets
-# Importing from WINDOWS
-monthly = read_csv(here("Datasets", "hbn_direct_transfer_2024","HBN_monthly_sliding_edgelist_2024.csv" ))
-weekly = read_csv(here("Datasets", "hbn_direct_transfer_2024","HBN_weekly_sliding_edgelist_2024.csv" ))
-
-#Importing facility databaseIUM_hospital_info_2024 <- read_delim("Datasets/IUM_hospital_info_2024.csv", 
-IUM_hospital_info_2024 <- read_delim(here("Datasets","IUM_hospital_info_2024.csv"),
-                                     delim = ";", escape_double = FALSE, trim_ws = TRUE,
-                              locale = locale(encoding = "Latin1"))
-head(IUM_hospital_info_2024)
-
-#Getting the CAPACT dataset for regions and names
-capact24 = read_delim(here("Datasets","capact24.csv"),
-                      delim = ",", escape_double = FALSE, trim_ws = TRUE,
-                      locale = locale(encoding = "Latin1"))
-
-#Maybe I need this too
-nblit_ium = IUM_hospital_info_2024 %>% 
-  group_by(finessGeo) %>% 
-  summarise(nblit = sum(nblit)) %>% 
-  rename(finess_geo = finessGeo)
-
-#Importing admission data
-
-daily_admission<- read_delim(here("Datasets" , "hbn_direct_transfer_2024", 
-                                  "NO_ADMISSION_DAILY_2024.csv"), 
-                                     delim = ";", escape_double = FALSE, trim_ws = TRUE)
-head(daily_admission)
-
-#Importing Data No beds
-beds_data = read.csv(here("Datasets", "hbn_direct_transfer_2024",
-                          "Data_No_Beds_2024_FinessGeo.csv"))
-head(beds_data)
-
-#geographical coord
-coords = read.csv(here("Datasets", "finessGeo_data.csv"))
-head(coords)
-
-# Data cleaning of the datasets imported because it's not aggregated by finessgeo
-
-hosp_info <- IUM_hospital_info_2024 %>% 
-  mutate(
-    mode_hospit = stringr::str_trim(str_to_upper(mode_hospit))
-  ) %>% 
-  group_by(finessGeo) %>% 
-  summarise(
-    nblit  = sum(nblit, na.rm = TRUE),
-    mode_c = any(mode_hospit == "C", na.rm = TRUE),
-    mode_m = any(mode_hospit == "M", na.rm = TRUE),
-    mode_p = any(mode_hospit == "P", na.rm = TRUE)
-  )
-
-# Getting the coords of each hospital into LAT LONG for mapping, 
-# and get the geo location L City/ Commune, Dept, and Region
-
-library(dplyr)
-library(sf)
-library(giscoR)
-
-# convert Lambert-93 to lon/lat
-coords_sf <- coords %>%
-  st_as_sf(
-    coords = c("coordxet", "coordyet"),
-    crs = 2154,
-    remove = FALSE
-  ) %>%
-  st_transform(4326) %>%
-  mutate(
-    longitude = st_coordinates(.)[, 1],
-    latitude  = st_coordinates(.)[, 2]
-  )
-
-# get France boundaries
-communes_fr <- gisco_get_communes(country = "FR", epsg = "4326")
-regions_fr <- gisco_get_nuts(country = "FR", nuts_level = 2, epsg = "4326")
-departments_fr <- gisco_get_nuts(country = "FR", nuts_level = 3, epsg = "4326")
-
-# inspect names once, because column names can differ by version
-# names(communes_fr)
-# names(regions_fr)
-# names(departments_fr)
-
-coords_enriched <- coords_sf %>%
-  st_join(
-    communes_fr %>% select(city = COMM_NAME),
-    join = st_within,
-    left = TRUE
-  ) %>%
-  st_join(
-    departments_fr %>% select(department = NAME_LATN),
-    join = st_within,
-    left = TRUE
-  ) %>%
-  st_join(
-    regions_fr %>% select(region = NAME_LATN),
-    join = st_within,
-    left = TRUE
-  ) %>%
-  st_drop_geometry()
-
-head(coords_enriched)
-
-library(dplyr)
-library(stringr)
-library(janitor)
-
-# 1. Clean column names: lowercase + consistent style
-coords_enriched <- coords_enriched %>%
-  clean_names()
-
-daily_admission <- daily_admission %>%
-  clean_names()
-
-beds_data <- beds_data %>%
-  clean_names()
-
-
+source(here("Code", "data-cleaning-network-model.R"))
 # If one dataset already has finess_geo, rename() will fail.
 # In that case, use this safer version instead:
 
-coords_enriched <- coords_enriched %>%
-  rename_with(~"finess_geo", .cols = any_of(c("finessgeo", "finess_geo")))
-
-daily_admission <- daily_admission %>%
-  rename_with(~"finess_geo", .cols = any_of(c("finessgeo", "finess_geo")))
- 
-beds_data <- beds_data %>%
-  rename_with(~"finess_geo", .cols = any_of(c("finessgeo", "finess_geo")))
-
-# 3. Check whether each dataset is 1 row per finess_geo
-# coords_dup <- coords_enriched %>%
-#   count(finess_geo) %>%
-#   filter(n > 1)
-# 
-# 
-# beds_dup <- beds_data %>%
-#   count(finess_geo) %>%
-#   filter(n > 1)
-# 
-# coords_dup
-# beds_dup
-
-#Merge Coords 
-coords_beds = full_join(coords_enriched, beds_data, by = "finess_geo")
-#Many doesnt have beds, lets just include the hospitals with any active admissions this year
-active_hosp = daily_admission %>% 
-  group_by(finess_geo) %>% 
-  summarise(admit_yr = sum(no_admissions))
-
-coords_beds_active = left_join(active_hosp, coords_beds, by ="finess_geo")
-
-
 # Start the Modeling Now!
-
 #Setup
 #1. Model assumption 1 : Full Occupancy. the number of discharges each day is the 
 # same as the number of admissions
 
-#Length of stay : Because it is unknown, we will take from a distribution, an average
-#los based on a distribution of 0-21 days (covering short term and long term hospital reasonably)
-
-
-# -------------------------------
-# Clean hospital bed dataset
-# -------------------------------
-hospitals <- coords_beds_active %>%
-  clean_names() %>%
-  mutate(
-    finess_geo = as.character(finess_geo),
-    no_beds = as.integer(no_beds)
-  ) %>%
-  select(finess_geo, no_beds) %>%
-  distinct() %>% 
-  mutate(
-    mean_beds = round(mean(no_beds, na.rm = TRUE)),
-    no_beds = if_else(is.na(no_beds), mean_beds, no_beds),
-    no_beds = as.integer(round(no_beds))
-  ) %>%
-  select(-mean_beds)
 
 # -------------------------------
 # Clean daily admissions dataset
@@ -251,519 +46,310 @@ sample_los <- function(n, mean_los = 7, sd_los = 2, min_los = 1, max_los = 15) {
 
 ## INITIALIZING PATIENT POPULATION
 
+# -----------------------------------------------------------
+# Seed hospital = largest total outgoing transfers
+# -----------------------------------------------------------
+seed_hospital <- transfers %>%
+  group_by(finess_geo_origin) %>%
+  summarise(total_outgoing = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+  slice_max(order_by = total_outgoing, n = 1, with_ties = FALSE) %>%
+  pull(finess_geo_origin)
+
+seed_hospital
+# -----------------------------------------------------------
+# Build hospital universe from all origins and targets
+# then attach no_beds
+# -----------------------------------------------------------
+all_transfer_hospitals <- bind_rows(
+  transfers %>% transmute(finess_geo = finess_geo_origin),
+  transfers %>% transmute(finess_geo = finess_geo_target)
+) %>%
+  distinct()
+
+hospitals <- all_transfer_hospitals %>%
+  left_join(
+    coords_beds_active %>%
+      clean_names() %>%
+      transmute(
+        finess_geo = as.character(finess_geo),
+        no_beds = readr::parse_number(as.character(no_beds))
+      ) %>%
+      distinct(),
+    by = "finess_geo"
+  ) %>%
+  mutate(
+    mean_beds = round(mean(no_beds, na.rm = TRUE)),
+    no_beds = if_else(is.na(no_beds), mean_beds, no_beds),
+    no_beds = as.integer(round(no_beds))
+  ) %>%
+  select(finess_geo, no_beds)
+
 # -------------------------------------------------------------------
 # Create one occupied bed = one patient at time 0
 # Seed infection into one hospital
 # -------------------------------------------------------------------
-initialize_patients <- function(hospitals,
-                                seed_hospital,
-                                n_seed_infected = 1,
-                                mean_los = 7,  #all of this is assumptions
-                                sd_los = 2,
-                                min_los = 1,
-                                max_los = 15) {
-  
-  patients <- hospitals %>%
-    mutate(bed_id = map(no_beds, seq_len)) %>%
-    unnest(bed_id) %>%
-    mutate(
-      patient_id = row_number(),
-      infected = FALSE,
-      los_remaining = sample_los(
-        n = n(),
-        mean_los = mean_los,
-        sd_los = sd_los,
-        min_los = min_los,
-        max_los = max_los
-      )
-    ) %>%
-    select(patient_id, finess_geo, infected, los_remaining)
-  
-  # Seed the initial infected patients in one hospital
-  seed_ids <- patients %>%
-    dplyr::filter(finess_geo == seed_hospital) %>%
-    slice_sample(n = min(n_seed_infected, n())) %>%
-    pull(patient_id)
-  
-  patients <- patients %>%
-    mutate(
-      infected = patient_id %in% seed_ids
-    )
-  
-  patients
-}
-
-# -------------------------------------------------------------------
-# Get the transfer records that occur on a given date
-# -------------------------------------------------------------------
-# get_daily_transfers <- function(transfers, current_date) {
-#   
-#   transfers %>%
-#     filter(transfer_date == current_date) %>%
-#     filter(weight > 0) %>%
-#     mutate(
-#       n_transfers = as.integer(round(weight))
-#     ) %>%
-#     filter(n_transfers > 0) %>%
-#     select(finess_geo_origin, finess_geo_target, n_transfers)
-# }
-
-library(tidyverse)
-library(lubridate)
-library(janitor)
-
-# -------------------------------------------------------------------
-# Assign one fixed LOS to each hospital for the full simulation
-# -------------------------------------------------------------------
-assign_hospital_los <- function(hospitals,
-                                mean_los = 7,
-                                sd_los = 2,
-                                min_los = 1,
-                                max_los = 15,
-                                seed = 123) {
-  
-  set.seed(seed)
+# -----------------------------------------------------------
+# Initialize hospital-level state
+# -----------------------------------------------------------
+initialize_hospital_state <- function(hospitals,
+                                      seed_hospital,
+                                      n_seed_infected = 1) {
   
   hospitals %>%
     mutate(
-      hospital_los = sample_los(
-        n = n(),
-        mean_los = mean_los,
-        sd_los = sd_los,
-        min_los = min_los,
-        max_los = max_los
-      )
-    )
-}
-
-# -------------------------------------------------------------------
-# Initialize one patient per occupied bed
-# All patients in a hospital get the same LOS = hospital_los
-# -------------------------------------------------------------------
-initialize_patients <- function(hospitals,
-                                seed_hospital,
-                                n_seed_infected = 1) {
-  
-  patients <- hospitals %>%
-    mutate(bed_id = map(no_beds, seq_len)) %>%
-    unnest(bed_id) %>%
-    mutate(
-      patient_id = row_number(),
-      infected = FALSE,
-      los_remaining = hospital_los
-    ) %>%
-    select(patient_id, finess_geo, infected, los_remaining)
-  
-  seed_pool <- patients %>%
-    filter(finess_geo == seed_hospital)
-  
-  seed_ids <- seed_pool %>%
-    slice_sample(n = min(n_seed_infected, nrow(seed_pool))) %>%
-    pull(patient_id)
-  
-  patients %>%
-    mutate(
-      infected = patient_id %in% seed_ids
-    )
-}
-
-# -------------------------------------------------------------------
-# Simulate one day of SIS transmission + turnover + transfers
-# -------------------------------------------------------------------
-simulate_one_day <- function(patients,
-                             hospitals,
-                             adm_daily,
-                             transfers,
-                             current_date,
-                             beta_within = 0.05,
-                             gamma_clear = 1 / 387,
-                             admission_prev = 0) {
-  
-  # ===============================================================
-  # A. Within-hospital transmission
-  # ===============================================================
-  hosp_prev <- patients %>%
-    group_by(finess_geo) %>%
-    summarise(
-      n_patients = n(),
-      n_infected = sum(infected),
-      prevalence = n_infected / n_patients,
-      .groups = "drop"
-    )
-  
-  patients <- patients %>%
-    left_join(
-      hosp_prev %>% select(finess_geo, prevalence),
-      by = "finess_geo"
-    ) %>%
-    mutate(
-      p_infection = 1 - exp(-beta_within * prevalence),
-      new_infection = if_else(
-        infected,
-        FALSE,
-        rbinom(n(), size = 1, prob = p_infection) == 1
+      n_infected = if_else(
+        finess_geo == seed_hospital,
+        pmin(n_seed_infected, no_beds),
+        0L
       ),
-      infected = infected | new_infection
-    ) %>%
-    select(-prevalence, -p_infection, -new_infection)
-  
-  # ===============================================================
-  # B. SIS clearance
-  # ===============================================================
-  patients <- patients %>%
-    mutate(
-      infected = if_else(
-        infected,
-        rbinom(n(), size = 1, prob = gamma_clear) == 0,
-        FALSE
-      )
+      prevalence = n_infected / no_beds
     )
+}
+
+# -----------------------------------------------------------
+# For one day of transfers:
+# infected transferred on each edge = round(weight * prevalence_origin)
+#
+# Then cap total infected outgoing from each hospital so we do not
+# transfer out more infected than currently exist in that hospital.
+# -----------------------------------------------------------
+compute_daily_infected_transfers <- function(state, transfers_day) {
   
-  # ===============================================================
-  # C. Advance LOS by one day
-  # ===============================================================
-  patients <- patients %>%
-    mutate(
-      los_remaining = los_remaining - 1
-    )
-  
-  # ===============================================================
-  # D. Get today's admission targets
-  # ===============================================================
-  adm_today <- hospitals %>%
-    select(finess_geo) %>%
-    left_join(
-      adm_daily %>% filter(date == current_date),
-      by = "finess_geo"
-    ) %>%
-    mutate(
-      daily_admissions = replace_na(daily_admissions, 0L)
-    )
-  
-  # ===============================================================
-  # E. Candidate departures:
-  # first use LOS-ready patients, then force extras if needed
-  # so that departures = daily_admissions
-  # ===============================================================
-  departing_ready <- patients %>%
-    filter(los_remaining <= 0)
-  
-  staying_patients <- patients %>%
-    filter(los_remaining > 0)
-  
-  dep_ready_counts <- departing_ready %>%
-    count(finess_geo, name = "n_dep_ready")
-  
-  adm_today <- adm_today %>%
-    left_join(dep_ready_counts, by = "finess_geo") %>%
-    mutate(
-      n_dep_ready = replace_na(n_dep_ready, 0L),
-      extra_needed = pmax(0L, daily_admissions - n_dep_ready)
-    )
-  
-  # If LOS-ready departures are not enough, sample extra departures
-  # from patients who otherwise would have stayed
-  forced_departures <- purrr::pmap_dfr(
-    list(adm_today$finess_geo, adm_today$extra_needed),
-    function(hosp_id, n_force) {
-      
-      eligible <- staying_patients %>%
-        filter(finess_geo == hosp_id)
-      
-      if (is.na(n_force) || n_force <= 0 || nrow(eligible) == 0) {
-        return(tibble(
-          patient_id = integer(),
-          finess_geo = character(),
-          infected = logical(),
-          los_remaining = integer()
-        ))
-      }
-      
-      eligible %>%
-        slice_sample(n = min(n_force, nrow(eligible)))
-    }
-  )
-  
-  # Candidate departures = LOS-ready + forced departures
-  candidate_departures <- bind_rows(
-    departing_ready,
-    forced_departures
-  ) %>%
-    distinct(patient_id, .keep_all = TRUE)
-  
-  # Final departures: exactly daily_admissions per hospital
-  departures_today <- purrr::pmap_dfr(
-    list(adm_today$finess_geo, adm_today$daily_admissions),
-    function(hosp_id, n_leave) {
-      
-      cand <- candidate_departures %>%
-        filter(finess_geo == hosp_id)
-      
-      if (is.na(n_leave) || n_leave <= 0 || nrow(cand) == 0) {
-        return(tibble(
-          patient_id = integer(),
-          finess_geo = character(),
-          infected = logical(),
-          los_remaining = integer()
-        ))
-      }
-      
-      cand %>%
-        slice_sample(n = min(n_leave, nrow(cand)))
-    }
-  )
-  
-  # Everyone not selected for departure stays
-  staying_patients <- patients %>%
-    anti_join(
-      departures_today %>% select(patient_id),
-      by = "patient_id"
-    )
-  # ===============================================================
-  # F. Transfer assignments
-  # Transfers are chosen from today's departures
-  # ===============================================================
-  transfer_plan <- get_daily_transfers(
-    transfers = transfers,
-    current_date = current_date
-  )
-  
-  transfer_assignments <- tibble(
-    patient_id = integer(),
-    origin = character(),
-    destination = character()
-  )
-  
-  if (nrow(transfer_plan) > 0) {
-    transfer_assignments <- transfer_plan %>%
-      group_by(finess_geo_origin) %>%
-      group_modify(~{
-        origin_id <- .y$finess_geo_origin[[1]]
-        
-        dep_origin <- departures_today %>%
-          filter(finess_geo == origin_id)
-        
-        if (nrow(dep_origin) == 0) {
-          return(tibble(
-            patient_id = integer(),
-            origin = character(),
-            destination = character()
-          ))
-        }
-        
-        plan_origin <- .x %>%
-          rename(
-            destination = finess_geo_target,
-            n_transfer = n_transfers
-          )
-        
-        total_requested <- sum(plan_origin$n_transfer)
-        total_available <- nrow(dep_origin)
-        total_to_transfer <- min(total_requested, total_available)
-        
-        if (total_to_transfer == 0) {
-          return(tibble(
-            patient_id = integer(),
-            origin = character(),
-            destination = character()
-          ))
-        }
-        
-        selected <- dep_origin %>%
-          slice_sample(n = total_to_transfer)
-        
-        dest_vec <- rep(plan_origin$destination, times = plan_origin$n_transfer)
-        
-        if (length(dest_vec) > total_to_transfer) {
-          dest_vec <- sample(dest_vec, size = total_to_transfer, replace = FALSE)
-        }
-        
-        tibble(
-          patient_id = selected$patient_id,
-          origin = origin_id,
-          destination = dest_vec
-        )
-      }) %>%
-      ungroup()
+  if (nrow(transfers_day) == 0) {
+    return(tibble(
+      finess_geo_origin = character(),
+      finess_geo_target = character(),
+      weight = numeric(),
+      prev_origin = numeric(),
+      infected_transfer = integer()
+    ))
   }
   
-  # ===============================================================
-  # G. Split departures
-  # ===============================================================
-  transfer_out_patients <- departures_today %>%
-    inner_join(
-      transfer_assignments %>% select(patient_id, destination),
-      by = "patient_id"
-    )
-  
-  non_transfer_discharges <- departures_today %>%
-    anti_join(
-      transfer_assignments %>% select(patient_id),
-      by = "patient_id"
-    )
-  
-  # ===============================================================
-  # H. Build transferred-in patients
-  # New LOS = hospital_los at destination
-  # ===============================================================
-  transferred_in <- transfer_out_patients %>%
+  # attach origin prevalence and infected count
+  transfers_aug <- transfers_day %>%
     left_join(
-      hospitals %>% select(finess_geo, hospital_los),
-      by = c("destination" = "finess_geo")
+      state %>%
+        select(
+          finess_geo,
+          no_beds,
+          n_infected,
+          prevalence
+        ),
+      by = c("finess_geo_origin" = "finess_geo")
     ) %>%
-    transmute(
-      patient_id = NA_integer_,
-      finess_geo = destination,
-      infected = infected,
-      los_remaining = hospital_los
-    )
-  
-  # ===============================================================
-  # I. Remaining community admissions
-  # daily_admissions = transfer-ins + community admissions
-  # ===============================================================
-  transfer_in_counts <- transferred_in %>%
-    count(finess_geo, name = "n_transfer_in")
-  
-  adm_today <- adm_today %>%
-    left_join(transfer_in_counts, by = "finess_geo") %>%
-    mutate(
-      n_transfer_in = replace_na(n_transfer_in, 0L),
-      n_community_adm = pmax(0L, daily_admissions - n_transfer_in)
-    )
-  
-  community_admissions <- adm_today %>%
-    mutate(adm_id = map(n_community_adm, seq_len)) %>%
-    unnest(adm_id, keep_empty = FALSE) %>%
-    left_join(
-      hospitals %>% select(finess_geo, hospital_los),
-      by = "finess_geo"
+    rename(
+      n_infected_origin = n_infected,
+      prev_origin = prevalence
     ) %>%
-    transmute(
-      patient_id = NA_integer_,
-      finess_geo,
-      infected = rbinom(n(), size = 1, prob = admission_prev) == 1,
-      los_remaining = hospital_los
-    )
-  
-  # ===============================================================
-  # J. Rebuild patient table
-  # ===============================================================
-  patients_next <- bind_rows(
-    staying_patients %>% select(patient_id, finess_geo, infected, los_remaining),
-    transferred_in,
-    community_admissions
-  ) %>%
     mutate(
-      patient_id = row_number()
+      prev_origin = replace_na(prev_origin, 0),
+      n_infected_origin = replace_na(n_infected_origin, 0L),
+      infected_transfer_raw = round(weight * prev_origin),
+      infected_transfer_raw = pmax(0, infected_transfer_raw),
+      infected_transfer_raw = pmin(infected_transfer_raw, weight)
     )
   
-  # ===============================================================
-  # K. Enforce exact occupancy = no_beds
-  # ===============================================================
-  current_counts <- patients_next %>%
-    count(finess_geo, name = "n_current") %>%
-    right_join(hospitals, by = "finess_geo") %>%
-    mutate(
-      n_current = replace_na(n_current, 0L),
-      diff = no_beds - n_current
-    )
-  
-  fill_ins <- current_counts %>%
-    filter(diff > 0) %>%
-    mutate(fill_id = map(diff, seq_len)) %>%
-    unnest(fill_id, keep_empty = FALSE) %>%
-    transmute(
-      patient_id = NA_integer_,
-      finess_geo,
-      infected = FALSE,
-      los_remaining = hospital_los
-    )
-  
-  patients_next <- bind_rows(patients_next, fill_ins) %>%
-    mutate(patient_id = row_number())
-  
-  patients_next <- patients_next %>%
-    group_by(finess_geo) %>%
+  # cap total outgoing infected at n_infected_origin
+  transfers_capped <- transfers_aug %>%
+    group_by(finess_geo_origin) %>%
     group_modify(~{
-      hosp_id <- .y$finess_geo[[1]]
-      target_n <- hospitals %>%
-        filter(finess_geo == hosp_id) %>%
-        pull(no_beds)
+      dat <- .x
       
-      if (nrow(.x) <= target_n) {
-        .x
-      } else {
-        .x %>% slice_sample(n = target_n)
+      infected_available <- dat$n_infected_origin[1]
+      proposed_total <- sum(dat$infected_transfer_raw, na.rm = TRUE)
+      
+      # if proposal is already feasible, keep it
+      if (proposed_total <= infected_available) {
+        return(
+          dat %>%
+            mutate(infected_transfer = as.integer(infected_transfer_raw))
+        )
       }
+      
+      # otherwise scale down proportionally
+      if (proposed_total == 0 || infected_available == 0) {
+        return(
+          dat %>%
+            mutate(infected_transfer = 0L)
+        )
+      }
+      
+      scaled <- dat$infected_transfer_raw * infected_available / proposed_total
+      base_alloc <- floor(scaled)
+      remainder <- scaled - base_alloc
+      
+      left_to_assign <- infected_available - sum(base_alloc)
+      
+      if (left_to_assign > 0) {
+        add_one_idx <- order(remainder, decreasing = TRUE)[seq_len(left_to_assign)]
+        base_alloc[add_one_idx] <- base_alloc[add_one_idx] + 1L
+      }
+      
+      dat %>%
+        mutate(
+          infected_transfer = as.integer(base_alloc)
+        )
     }) %>%
-    ungroup()
+    ungroup() %>%
+    select(
+      finess_geo_origin,
+      finess_geo_target,
+      weight,
+      prev_origin,
+      infected_transfer
+    )
   
-  # ===============================================================
-  # L. Daily summaries
-  # ===============================================================
-  daily_summary <- patients_next %>%
-    group_by(finess_geo) %>%
+  transfers_capped
+}
+
+# -----------------------------------------------------------
+# Simulate one day at hospital level
+# -----------------------------------------------------------
+simulate_one_day_agg <- function(state,
+                                 transfers,
+                                 current_date,
+                                 beta_within = 0.05,
+                                 gamma_clear = 1 / 387,
+                                 admission_prev = 0) {
+  
+  # ---------------------------------------------------------
+  # A. Transfers occurring today
+  # ---------------------------------------------------------
+  transfers_day <- transfers %>%
+    filter(transfer_date == current_date) %>%
+    select(finess_geo_origin, finess_geo_target, weight)
+  
+  infected_transfers <- compute_daily_infected_transfers(
+    state = state,
+    transfers_day = transfers_day
+  )
+  
+  # total infected leaving each origin
+  infected_out <- infected_transfers %>%
+    group_by(finess_geo_origin) %>%
     summarise(
-      n_patients = n(),
-      n_infected = sum(infected),
-      prevalence = n_infected / n_patients,
+      infected_out = sum(infected_transfer, na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    mutate(date = current_date)
+    rename(finess_geo = finess_geo_origin)
   
-  overall_summary <- daily_summary %>%
+  # total infected arriving at each destination
+  infected_in <- infected_transfers %>%
+    group_by(finess_geo_target) %>%
+    summarise(
+      infected_in = sum(infected_transfer, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    rename(finess_geo = finess_geo_target)
+  
+  # ---------------------------------------------------------
+  # B. Update hospital infected counts after transfers
+  #
+  # infected patients leaving origin are replaced by susceptible
+  # community admissions, since admission_prev defaults to 0.
+  #
+  # infected patients arriving at destination replace susceptibles.
+  # ---------------------------------------------------------
+  state <- state %>%
+    left_join(infected_out, by = "finess_geo") %>%
+    left_join(infected_in, by = "finess_geo") %>%
+    mutate(
+      infected_out = replace_na(infected_out, 0L),
+      infected_in = replace_na(infected_in, 0L),
+      
+      # if admission_prev > 0, some replacements at origin could be infected
+      infected_replaced_from_community = rbinom(
+        n(),
+        size = infected_out,
+        prob = admission_prev
+      ),
+      
+      n_infected = n_infected - infected_out + infected_in + infected_replaced_from_community,
+      n_infected = pmax(0L, pmin(n_infected, no_beds)),
+      prevalence = n_infected / no_beds
+    )
+  
+  # ---------------------------------------------------------
+  # C. Clearance
+  # ---------------------------------------------------------
+  state <- state %>%
+    mutate(
+      n_cleared = rbinom(n(), size = n_infected, prob = gamma_clear),
+      n_infected_after_clear = n_infected - n_cleared
+    )
+  
+  # ---------------------------------------------------------
+  # D. Within-hospital SIS transmission
+  #
+  # susceptible -> infected with:
+  # 1 - exp(-beta * I / N)
+  # ---------------------------------------------------------
+  state <- state %>%
+    mutate(
+      n_susceptible = no_beds - n_infected_after_clear,
+      p_infection = 1 - exp(-beta_within * (n_infected_after_clear / no_beds)),
+      n_new_infected = rbinom(n(), size = n_susceptible, prob = p_infection),
+      n_infected = n_infected_after_clear + n_new_infected,
+      n_infected = pmax(0L, pmin(n_infected, no_beds)),
+      prevalence = n_infected / no_beds
+    ) %>%
+    select(finess_geo, no_beds, n_infected, prevalence)
+  
+  # ---------------------------------------------------------
+  # E. Summaries
+  # ---------------------------------------------------------
+  daily_summary <- state %>%
+    transmute(
+      date = current_date,
+      finess_geo,
+      no_beds,
+      n_infected,
+      prevalence
+    )
+  
+  overall_summary <- state %>%
     summarise(
       date = current_date,
-      total_patients = sum(n_patients),
+      total_patients = sum(no_beds),
       total_infected = sum(n_infected),
-      overall_prevalence = total_infected / total_patients
+      overall_prevalence = total_infected / total_patients,
+      n_hospitals_with_case = sum(n_infected > 0)
     )
   
   list(
-    patients = patients_next,
+    state = state,
     daily_summary = daily_summary,
     overall_summary = overall_summary,
-    departures_today = departures_today,
-    transfer_plan = transfer_plan,
-    transfer_assignments = transfer_assignments,
-    transferred_in = transferred_in,
-    non_transfer_discharges = non_transfer_discharges
+    infected_transfers = infected_transfers
   )
 }
 
-# -------------------------------------------------------------------
-# Run simulation over a date range
-# -------------------------------------------------------------------
-run_sis_simulation <- function(hospitals,
-                               adm_daily,
-                               transfers,
-                               start_date,
-                               end_date,
-                               seed_hospital,
-                               n_seed_infected = 1,
-                               beta_within = 0.05,
-                               gamma_clear = 1 / 387,
-                               admission_prev = 0,
-                               mean_los = 7,
-                               sd_los = 2,
-                               min_los = 1,
-                               max_los = 15,
-                               seed = 123) {
+# -----------------------------------------------------------
+# Run the simplified aggregate SIS model
+# -----------------------------------------------------------
+run_sis_simulation_agg <- function(hospitals,
+                                   transfers,
+                                   start_date,
+                                   end_date,
+                                   seed_hospital = NULL,
+                                   n_seed_infected = 1,
+                                   beta_within = 0.05,
+                                   gamma_clear = 1 / 387,
+                                   admission_prev = 0,
+                                   seed = 123) {
   
-  # assign one fixed LOS per hospital
-  hospitals <- assign_hospital_los(
-    hospitals = hospitals,
-    mean_los = mean_los,
-    sd_los = sd_los,
-    min_los = min_los,
-    max_los = max_los,
-    seed = seed
-  )
-  
-  # initialize patient population
   set.seed(seed)
-  patients <- initialize_patients(
+  
+  # default seed hospital = largest outgoing transfers
+  if (is.null(seed_hospital)) {
+    seed_hospital <- transfers %>%
+      group_by(finess_geo_origin) %>%
+      summarise(total_outgoing = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+      slice_max(order_by = total_outgoing, n = 1, with_ties = FALSE) %>%
+      pull(finess_geo_origin)
+  }
+  
+  state <- initialize_hospital_state(
     hospitals = hospitals,
     seed_hospital = seed_hospital,
     n_seed_infected = n_seed_infected
@@ -771,20 +357,19 @@ run_sis_simulation <- function(hospitals,
   
   sim_dates <- seq.Date(
     from = as.Date(start_date),
-    to   = as.Date(end_date),
-    by   = "day"
+    to = as.Date(end_date),
+    by = "day"
   )
   
   daily_results <- vector("list", length(sim_dates))
   overall_results <- vector("list", length(sim_dates))
+  transfer_results <- vector("list", length(sim_dates))
   
   for (i in seq_along(sim_dates)) {
     current_date <- sim_dates[i]
     
-    out <- simulate_one_day(
-      patients = patients,
-      hospitals = hospitals,
-      adm_daily = adm_daily,
+    out <- simulate_one_day_agg(
+      state = state,
       transfers = transfers,
       current_date = current_date,
       beta_within = beta_within,
@@ -792,49 +377,90 @@ run_sis_simulation <- function(hospitals,
       admission_prev = admission_prev
     )
     
-    patients <- out$patients
+    state <- out$state
     daily_results[[i]] <- out$daily_summary
     overall_results[[i]] <- out$overall_summary
+    transfer_results[[i]] <- out$infected_transfers %>%
+      mutate(date = current_date)
   }
   
   list(
-    hospitals = hospitals,
-    patients_final = patients,
+    seed_hospital = seed_hospital,
+    state_final = state,
     daily_results = bind_rows(daily_results),
-    overall_results = bind_rows(overall_results)
+    overall_results = bind_rows(overall_results),
+    infected_transfer_results = bind_rows(transfer_results)
   )
 }
 
-#Seeding at a random hospital 
-seed_hospital <- "010000024"
-
-sim_out <- run_sis_simulation(
+sim_out <- run_sis_simulation_agg(
   hospitals = hospitals,
-  adm_daily = adm_daily,
   transfers = transfers,
   start_date = "2024-01-07",
-  end_date   = "2024-03-31",
-  seed_hospital = seed_hospital,
+  end_date   = "2025-01-05",
+  seed_hospital = NULL,      # automatically uses largest outgoing hospital
   n_seed_infected = 5,
   beta_within = 0.20,
   gamma_clear = 1 / 387,
   admission_prev = 0,
-  mean_los = 7,
-  sd_los = 2,
-  min_los = 1,
-  max_los = 15,
   seed = 101
 )
+
+sim_out$seed_hospital
+
+
+
 
 head(sim_out$hospitals)
 head(sim_out$daily_results)
 head(sim_out$overall_results)
+head(sim_out$patients_final)
+
+view(sim_out$daily_results)
+view(sim_out$overall_results)
 
 
-#Diagnosis
-hospitals %>%
-  filter(is.na(no_beds) | no_beds < 0) %>%
-  arrange(no_beds)
+sim_out$overall_results %>%
+  ggplot(aes(x = date, y = total_infected)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1) +
+  labs(
+    title = "Total number of infected patients over 365 days",
+    x = "Date",
+    y = "Number of infected patients"
+  ) +
+  theme_minimal()
+
+
+hospitals_with_cases <- sim_out$daily_results %>%
+  group_by(date) %>%
+  summarise(
+    n_hospitals_with_case = sum(n_infected > 0, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+#Plotting the number of infected hospitals
+hospitals_with_cases %>%
+  ggplot(aes(x = date, y = n_hospitals_with_case)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Number of hospitals with at least one infected patient over time",
+    x = "Date",
+    y = "Hospitals with at least one case"
+  ) +
+  theme_minimal()
+
+
+
+#Write the saved runs
+todaysdate = as.character(today())
+write.csv(sim_out$daily_results, file = here("Outputs", "Saved Results", 
+                                             paste0("daily_initial_run_", todaysdate,".csv")))
+write.csv(sim_out$overall_results, file = here("Outputs", "Saved Results", 
+                                             paste0("overall_initial_run_", todaysdate,".csv")))
+
+
 
 #With this simplification, all patients in the same hospital turn over on the 
 # same LOS clock unless they entered on different days. 
