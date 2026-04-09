@@ -1,6 +1,7 @@
 #Dynamic Temporal Network Model Code
-
+library(here)
 source(here("Code", "data-cleaning-network-model.R"))
+library(tidyverse)
 # If one dataset already has finess_geo, rename() will fail.
 # In that case, use this safer version instead:
 
@@ -9,17 +10,6 @@ source(here("Code", "data-cleaning-network-model.R"))
 #1. Model assumption 1 : Full Occupancy. the number of discharges each day is the 
 # same as the number of admissions
 
-
-# -------------------------------
-# Clean daily admissions dataset
-# -------------------------------
-adm_daily <- daily_admission %>%
-  clean_names() %>%
-  mutate(
-    date = as.Date(date_entree),
-    daily_admissions = as.integer(no_admissions)
-  ) %>%
-  select(finess_geo, date, daily_admissions)
 
 # -------------------------------
 # Clean weekly transfer dataset
@@ -399,8 +389,8 @@ sim_out <- run_sis_simulation_agg(
   start_date = "2024-01-07",
   end_date   = "2025-01-05",
   seed_hospital = NULL,      # automatically uses largest outgoing hospital
-  n_seed_infected = 5,
-  beta_within = 0.20,
+  n_seed_infected = 1,
+  beta_within = 0.104, # CALIBRATE / VARY BETA TO SEE CONCLUSION IS THE SAME
   gamma_clear = 1 / 387,
   admission_prev = 0,
   seed = 101
@@ -408,6 +398,16 @@ sim_out <- run_sis_simulation_agg(
 
 sim_out$seed_hospital
 
+#ADDING MORE STOCHASTICITY TO THE TRANSFR INFECTION ITSELF
+#VARYING BETA MORE BASED ON PATHOGEN COMMON VS RARE
+#DISCUSS WITH ELISE ABOUT THE ADMISSION PREVALENCE
+#H ADDING TSTOCHASTICITY
+
+# Surveillance data from french lab - coming later
+# for supporting the repeat aalysis
+
+#intervention
+# targeted intervention based on network
 
 
 
@@ -470,3 +470,7 @@ write.csv(sim_out$overall_results, file = here("Outputs", "Saved Results",
 # The next thing I would refine is the departure mechanism,
 # because right now it still forces departures to equal dail
 # even when LOS-ready patients are fewer.
+
+
+
+

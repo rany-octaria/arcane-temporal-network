@@ -31,6 +31,7 @@ library(scales)
 library(purrr)
 library(readr)
 library(stringr)
+library(tidyverse)
 # install.packages(c("rnaturalearth", "rnaturalearthdata", "remotes"))
 # remotes::install_github("ropensci/rnaturalearthhires")
 

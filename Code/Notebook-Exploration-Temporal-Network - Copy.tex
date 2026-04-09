@@ -1,0 +1,438 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+]{article}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\usepackage{framed}
+\definecolor{shadecolor}{RGB}{248,248,248}
+\newenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{0.94,0.16,0.16}{#1}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\BuiltInTok}[1]{#1}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{0.64,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\ImportTok}[1]{#1}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Dynamic Network Exploration},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Dynamic Network Exploration}
+\author{}
+\date{\vspace{-2.5em}}
+
+\begin{document}
+\maketitle
+
+\subsection{Exploratory Data Analysis of the Temporal Direct Network
+Data}\label{exploratory-data-analysis-of-the-temporal-direct-network-data}
+
+We are running exploratory data analyses of the French transfer
+networks. OUr data comes from the direct transfers of all France
+hospitals in 2024, all within a 7-day time frame aggregation within one
+year. Therefore, our first analysis would be a descriptive analyses of
+the basic network characteristics.
+
+\subsubsection{Weekly Transfer Window
+Data}\label{weekly-transfer-window-data}
+
+Let's explore the direct transfers with 7-day (weekly) time
+window,starting for all year timespan.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# Explore the data structure}
+\CommentTok{\# Let\textquotesingle{}s make sure that the date span is from January to December.}
+
+\FunctionTok{head}\NormalTok{(weekly)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+##   finessGeo_origin finessGeo_target weight window_start window_end
+## 1        010005239        010000024      5   2024-01-01 2024-01-07
+## 2        690007539        010000024      2   2024-01-01 2024-01-07
+## 3        570000117        010000032      1   2024-01-01 2024-01-07
+## 4        690000575        010000065     26   2024-01-01 2024-01-07
+## 5        010780203        010780195      5   2024-01-01 2024-01-07
+## 6        390000065        010780195      3   2024-01-01 2024-01-07
+##   weekly_window_number
+## 1                    1
+## 2                    1
+## 3                    1
+## 4                    1
+## 5                    1
+## 6                    1
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{tail}\NormalTok{(weekly)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+##         finessGeo_origin finessGeo_target weight window_start window_end
+## 1871060        950000323        920120011      1   2024-12-25 2024-12-31
+## 1871061        950000315        920150018      1   2024-12-25 2024-12-31
+## 1871062        950000307        920300415      1   2024-12-25 2024-12-31
+## 1871063        930100045        930100011      1   2024-12-25 2024-12-31
+## 1871064        770000131        940100043      1   2024-12-25 2024-12-31
+## 1871065        750000549        950000364      1   2024-12-25 2024-12-31
+##         weekly_window_number
+## 1871060                  360
+## 1871061                  360
+## 1871062                  360
+## 1871063                  360
+## 1871064                  360
+## 1871065                  360
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\#Assigning seasons to the data}
+
+\NormalTok{df }\OtherTok{\textless{}{-}}\NormalTok{ weekly }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}
+    \AttributeTok{window\_start =} \FunctionTok{as.Date}\NormalTok{(window\_start),}
+    \AttributeTok{month =} \FunctionTok{month}\NormalTok{(window\_start),}
+    \AttributeTok{season =} \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{      month }\SpecialCharTok{\%in\%} \FunctionTok{c}\NormalTok{(}\DecValTok{12}\NormalTok{, }\DecValTok{1}\NormalTok{, }\DecValTok{2}\NormalTok{)  }\SpecialCharTok{\textasciitilde{}} \StringTok{"Winter"}\NormalTok{,}
+\NormalTok{      month }\SpecialCharTok{\%in\%} \FunctionTok{c}\NormalTok{(}\DecValTok{3}\NormalTok{, }\DecValTok{4}\NormalTok{, }\DecValTok{5}\NormalTok{)   }\SpecialCharTok{\textasciitilde{}} \StringTok{"Spring"}\NormalTok{,}
+\NormalTok{      month }\SpecialCharTok{\%in\%} \FunctionTok{c}\NormalTok{(}\DecValTok{6}\NormalTok{, }\DecValTok{7}\NormalTok{, }\DecValTok{8}\NormalTok{)   }\SpecialCharTok{\textasciitilde{}} \StringTok{"Summer"}\NormalTok{,}
+\NormalTok{      month }\SpecialCharTok{\%in\%} \FunctionTok{c}\NormalTok{(}\DecValTok{9}\NormalTok{, }\DecValTok{10}\NormalTok{, }\DecValTok{11}\NormalTok{) }\SpecialCharTok{\textasciitilde{}} \StringTok{"Autumn"}
+\NormalTok{    )}
+\NormalTok{  )}
+
+\CommentTok{\# Creating the summary statistics of what i wanted to know about the network over time}
+\CommentTok{\# I want to know the Number of connections (edges), hospitals (nodes), }
+\CommentTok{\# the number of total transfers between all hospitals within that week}
+\CommentTok{\# the mean and median number of transfers between hospitals}
+\CommentTok{\# the minimum and max number of transfers between hospitals}
+\CommentTok{\# }
+\CommentTok{\# Group it with the Weekly Window Number, the Start Date of the Window}
+
+\CommentTok{\#FIrst, getting the overall for the year.}
+
+\CommentTok{\# Number of sending hospitals}
+\NormalTok{num\_sender }\OtherTok{=} \FunctionTok{length}\NormalTok{(}\FunctionTok{unique}\NormalTok{(df}\SpecialCharTok{$}\NormalTok{finessGeo\_origin))}
+\NormalTok{num\_sender}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 1427
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# Number of receiver hospitals}
+\NormalTok{num\_receiver }\OtherTok{=} \FunctionTok{length}\NormalTok{(}\FunctionTok{unique}\NormalTok{(df}\SpecialCharTok{$}\NormalTok{finessGeo\_target))}
+\NormalTok{num\_receiver}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 1422
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\#Total number of transfers in the year}
+\NormalTok{num\_transfers\_allyear }\OtherTok{=} \FunctionTok{sum}\NormalTok{(df}\SpecialCharTok{$}\NormalTok{weight)}
+\NormalTok{num\_transfers\_allyear}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 4325040
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\#Max 10 transfers between pairs of hospitals within a week period}
+\NormalTok{df }\SpecialCharTok{\%\textgreater{}\%}  \FunctionTok{slice\_max}\NormalTok{(weight, }\AttributeTok{n=}\DecValTok{5}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+##   finessGeo_origin finessGeo_target weight window_start window_end
+## 1        540001138        540002698    143   2024-01-27 2024-02-02
+## 2        540001138        540002698    137   2024-01-24 2024-01-30
+## 3        540001138        540002698    137   2024-01-25 2024-01-31
+## 4        540001138        540002698    137   2024-01-26 2024-02-01
+## 5        540001138        540002698    134   2024-01-23 2024-01-29
+##   weekly_window_number month season
+## 1                   27     1 Winter
+## 2                   24     1 Winter
+## 3                   25     1 Winter
+## 4                   26     1 Winter
+## 5                   23     1 Winter
+\end{verbatim}
+
+\subsubsection{Temporal Analysis of Trends by Weekly Time
+Window}\label{temporal-analysis-of-trends-by-weekly-time-window}
+
+Looking at the averages and summary statistics trend for day-to-day
+trends to see the ups and downs of the number of nodes, edges,
+transfers, and otehers
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{summary\_stats }\OtherTok{\textless{}{-}}\NormalTok{ df }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{group\_by}\NormalTok{(weekly\_window\_number,window\_start,  month, season) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{summarise}\NormalTok{(}
+    \AttributeTok{n\_edges =} \FunctionTok{n}\NormalTok{(),}
+    \AttributeTok{n\_nodes =} \FunctionTok{n\_distinct}\NormalTok{(}\FunctionTok{c}\NormalTok{(finessGeo\_origin, finessGeo\_target)),}
+    \AttributeTok{total\_transfers =} \FunctionTok{sum}\NormalTok{(weight),}
+    \AttributeTok{mean\_weight =} \FunctionTok{mean}\NormalTok{(weight),}
+    \AttributeTok{median\_weight =} \FunctionTok{median}\NormalTok{(weight),}
+    \AttributeTok{.groups =} \StringTok{"drop"}
+\NormalTok{  )}
+
+\CommentTok{\#Calculate density with and remove non{-}full transfer window}
+\NormalTok{summary\_stats }\OtherTok{\textless{}{-}}\NormalTok{ summary\_stats }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}
+    \AttributeTok{density =}\NormalTok{ n\_edges }\SpecialCharTok{/}\NormalTok{ (n\_nodes }\SpecialCharTok{*}\NormalTok{ (n\_nodes }\SpecialCharTok{{-}} \DecValTok{1}\NormalTok{))}
+\NormalTok{  ) }\SpecialCharTok{\%\textgreater{}\%} 
+  \FunctionTok{filter}\NormalTok{(}\FunctionTok{as.Date}\NormalTok{(}\StringTok{"2024{-}12{-}31"}\NormalTok{) }\SpecialCharTok{{-}}\NormalTok{ window\_start }\SpecialCharTok{\textgreater{}=} \DecValTok{7}\NormalTok{)}
+
+\FunctionTok{tail}\NormalTok{(summary\_stats)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tibble: 6 x 10
+##   weekly_window_number window_start month season n_edges n_nodes total_transfers
+##                  <int> <date>       <dbl> <chr>    <int>   <int>           <int>
+## 1                  354 2024-12-19      12 Winter    5435    1197           10115
+## 2                  355 2024-12-20      12 Winter    5245    1163            9584
+## 3                  356 2024-12-21      12 Winter    5040    1148            9154
+## 4                  357 2024-12-22      12 Winter    5063    1140            8985
+## 5                  358 2024-12-23      12 Winter    5077    1138            8836
+## 6                  359 2024-12-24      12 Winter    4953    1117            8360
+## # i 3 more variables: mean_weight <dbl>, median_weight <dbl>, density <dbl>
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{summary\_overall }\OtherTok{\textless{}{-}}\NormalTok{ summary\_stats }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{summarise}\NormalTok{(}
+    \FunctionTok{across}\NormalTok{(}
+      \FunctionTok{where}\NormalTok{(is.numeric),}
+      \FunctionTok{list}\NormalTok{(}
+        \AttributeTok{mean =} \SpecialCharTok{\textasciitilde{}} \FunctionTok{mean}\NormalTok{(.x, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{),}
+        \AttributeTok{min =} \SpecialCharTok{\textasciitilde{}} \FunctionTok{min}\NormalTok{(.x, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{),}
+        \AttributeTok{max =} \SpecialCharTok{\textasciitilde{}} \FunctionTok{max}\NormalTok{(.x, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{),}
+        \AttributeTok{median =} \SpecialCharTok{\textasciitilde{}} \FunctionTok{median}\NormalTok{(.x, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{)}
+\NormalTok{      ),}
+      \AttributeTok{.names =} \StringTok{"\{.col\}\_\{.fn\}"}
+\NormalTok{    )}
+\NormalTok{  )}
+
+\NormalTok{summary\_overall }\OtherTok{=}\NormalTok{ summary\_overall }\SpecialCharTok{\%\textgreater{}\%} 
+  \FunctionTok{pivot\_longer}\NormalTok{(}
+    \AttributeTok{cols =} \FunctionTok{everything}\NormalTok{(),}
+    \AttributeTok{names\_to =} \StringTok{"metric"}\NormalTok{, }
+    \AttributeTok{values\_to =} \StringTok{"value"}
+\NormalTok{  ) }
+\NormalTok{summary\_overall }\OtherTok{=}\NormalTok{ summary\_overall[}\SpecialCharTok{{-}}\FunctionTok{c}\NormalTok{(}\DecValTok{1}\SpecialCharTok{:}\DecValTok{4}\NormalTok{), ]}
+
+
+\CommentTok{\# Plotting the Distribution of Transfers}
+
+\NormalTok{season\_colors }\OtherTok{\textless{}{-}} \FunctionTok{c}\NormalTok{(}
+  \StringTok{"Winter"} \OtherTok{=} \StringTok{"\#1f78b4"}\NormalTok{,}
+  \StringTok{"Spring"} \OtherTok{=} \StringTok{"\#33a02c"}\NormalTok{,}
+  \StringTok{"Summer"} \OtherTok{=} \StringTok{"\#ff7f00"}\NormalTok{,}
+  \StringTok{"Autumn"} \OtherTok{=} \StringTok{"\#e31a1c"}
+\NormalTok{)}
+
+\NormalTok{metrics }\OtherTok{\textless{}{-}}\NormalTok{ summary\_stats }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{select}\NormalTok{(}\SpecialCharTok{{-}}\NormalTok{weekly\_window\_number, }\SpecialCharTok{{-}}\NormalTok{season, }\SpecialCharTok{{-}}\NormalTok{month, }\SpecialCharTok{{-}}\NormalTok{window\_start) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{colnames}\NormalTok{()}
+
+\CommentTok{\#Labeling each metrics for easier plot titling}
+
+\NormalTok{metric\_labels }\OtherTok{=} \FunctionTok{c}\NormalTok{ (}
+  \AttributeTok{n\_edges =} \StringTok{"Number of Edges {-} connections between hospitals"}\NormalTok{,}
+  \AttributeTok{n\_nodes =} \StringTok{"NUmber of Active Nodes"}\NormalTok{,}
+  \AttributeTok{total\_transfers =} \StringTok{"Transfers between hospitals"}\NormalTok{,}
+  \AttributeTok{mean\_weight =} \StringTok{"Mean number of transfers"}\NormalTok{,}
+  \AttributeTok{median\_weight =} \StringTok{"Median number of transfers"}\NormalTok{,}
+  \AttributeTok{density =} \StringTok{"Temporal Network Density"}
+  
+\NormalTok{)}
+
+\CommentTok{\# Make sure the folder exists}
+\ControlFlowTok{if}\NormalTok{(}\SpecialCharTok{!}\FunctionTok{dir.exists}\NormalTok{(}\StringTok{"./Plots/"}\NormalTok{)) }\FunctionTok{dir.create}\NormalTok{(}\StringTok{"./Plots/"}\NormalTok{)}
+
+\CommentTok{\# Loop over metrics to create plots and save}
+\FunctionTok{lapply}\NormalTok{(metrics, }\ControlFlowTok{function}\NormalTok{(metric) \{}
+  
+\NormalTok{   nice\_label }\OtherTok{\textless{}{-}}\NormalTok{ metric\_labels[metric]}
+   
+\NormalTok{   p }\OtherTok{\textless{}{-}} \FunctionTok{ggplot}\NormalTok{(summary\_stats, }
+              \FunctionTok{aes}\NormalTok{(}\AttributeTok{x =}\NormalTok{ window\_start,}
+                  \AttributeTok{y =}\NormalTok{ .data[[metric]],}
+                  \AttributeTok{color =}\NormalTok{ season,}
+                  \AttributeTok{group =} \DecValTok{1}\NormalTok{)) }\SpecialCharTok{+}
+    \FunctionTok{geom\_line}\NormalTok{(}\AttributeTok{linewidth =} \FloatTok{0.5}\NormalTok{) }\SpecialCharTok{+}
+    \FunctionTok{geom\_point}\NormalTok{(}\AttributeTok{size =} \DecValTok{1}\NormalTok{) }\SpecialCharTok{+}
+    \FunctionTok{scale\_color\_manual}\NormalTok{(}\AttributeTok{values =}\NormalTok{ season\_colors) }\SpecialCharTok{+}
+    \FunctionTok{scale\_x\_date}\NormalTok{(}\AttributeTok{date\_labels =} \StringTok{"\%b \%Y"}\NormalTok{, }\AttributeTok{date\_breaks =} \StringTok{"1 month"}\NormalTok{) }\SpecialCharTok{+}
+    \FunctionTok{labs}\NormalTok{(}
+      \AttributeTok{title =} \FunctionTok{paste}\NormalTok{(}\StringTok{"Weekly Trend of"}\NormalTok{, nice\_label),}
+      \AttributeTok{subtitle =} \StringTok{"French Direct Transfer Data, 2024, Weekly Temporal Window"}\NormalTok{, }
+      \AttributeTok{x =} \StringTok{"Month"}\NormalTok{,}
+      \AttributeTok{y =}\NormalTok{ nice\_label,}
+      \AttributeTok{color =} \StringTok{"Season"}
+\NormalTok{    ) }\SpecialCharTok{+}
+    \FunctionTok{theme\_minimal}\NormalTok{() }\SpecialCharTok{+}
+    \FunctionTok{theme}\NormalTok{(}\AttributeTok{axis.text.x =} \FunctionTok{element\_text}\NormalTok{(}\AttributeTok{angle =} \DecValTok{45}\NormalTok{, }\AttributeTok{hjust =} \DecValTok{1}\NormalTok{),}
+          \AttributeTok{plot.title =} \FunctionTok{element\_text}\NormalTok{(}\AttributeTok{hjust =} \FloatTok{0.5}\NormalTok{),}
+          \AttributeTok{plot.subtitle =} \FunctionTok{element\_text}\NormalTok{(}\AttributeTok{hjust =} \FloatTok{0.5}\NormalTok{)}
+\NormalTok{          )}
+  
+   \FunctionTok{ggsave}\NormalTok{(}
+    \AttributeTok{filename =} \FunctionTok{paste0}\NormalTok{(}\StringTok{"./Plots/"}\NormalTok{, metric, }\StringTok{".jpeg"}\NormalTok{),}
+    \AttributeTok{plot =}\NormalTok{ p,}
+    \AttributeTok{width =} \DecValTok{6}\NormalTok{,}
+    \AttributeTok{height =} \DecValTok{4}\NormalTok{,}
+    \AttributeTok{units =} \StringTok{"in"}\NormalTok{,}
+    \AttributeTok{dpi =} \DecValTok{300}
+\NormalTok{  )}
+  
+  \FunctionTok{return}\NormalTok{(p)}
+\NormalTok{\})}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [[1]]
+\end{verbatim}
+
+\pandocbounded{\includegraphics[keepaspectratio]{Notebook-Exploration-Temporal-Network_files/figure-latex/weekly summary-1.pdf}}
+
+\begin{verbatim}
+## 
+## [[2]]
+\end{verbatim}
+
+\pandocbounded{\includegraphics[keepaspectratio]{Notebook-Exploration-Temporal-Network_files/figure-latex/weekly summary-2.pdf}}
+
+\begin{verbatim}
+## 
+## [[3]]
+\end{verbatim}
+
+\pandocbounded{\includegraphics[keepaspectratio]{Notebook-Exploration-Temporal-Network_files/figure-latex/weekly summary-3.pdf}}
+
+\begin{verbatim}
+## 
+## [[4]]
+\end{verbatim}
+
+\pandocbounded{\includegraphics[keepaspectratio]{Notebook-Exploration-Temporal-Network_files/figure-latex/weekly summary-4.pdf}}
+
+\begin{verbatim}
+## 
+## [[5]]
+\end{verbatim}
+
+\pandocbounded{\includegraphics[keepaspectratio]{Notebook-Exploration-Temporal-Network_files/figure-latex/weekly summary-5.pdf}}
+
+\begin{verbatim}
+## 
+## [[6]]
+\end{verbatim}
+
+\pandocbounded{\includegraphics[keepaspectratio]{Notebook-Exploration-Temporal-Network_files/figure-latex/weekly summary-6.pdf}}
+
+\end{document}

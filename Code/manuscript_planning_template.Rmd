@@ -1,0 +1,1097 @@
+---
+title: "Dynamic Network Modeling Manuscript Planning Template"
+author: "Rany Octaria"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: false
+  pdf_document:
+    toc: true
+    number_sections: false
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+
+#### **Intervention definitions**
+  
+   organize intervention scenarios into three main classes.
+  
+  - **Improved IPC within hospitals** :  evaluate interventions that reduce within-hospital transmission risk.
+  
+  - **Admission screening and quarantine/isolation**: evaluate interventions that reduce pathogen importation at admission or transfer-in.
+  
+  - **Network-modifying transfer interventions**:  evaluate interventions that alter patient-transfer patterns across the healthcare network while preserving key system constraints.
+
+####  **Scenario parameterization**
+  
+   define each scenario according to the dimensions below.
+  
+  - **Unit of intervention**:  specify whether the intervention acts at the level of hospital, admission, transfer route, source hospital, or destination hospital.
+  
+  - **Mechanism of action**:  specify whether the intervention changes within-hospital transmission, admission or transfer-related importation, or network connectivity and transfer probabilities.
+  
+  - **Intervention intensity**:  define the strength of each intervention, such as percent reduction in transmission, proportion of admissions screened, screening effectiveness, or proportion of transfers rerouted.
+  
+  - **Operational constraints**:  determine whether scenarios preserve total number of patients, total number of transfers, hospital type matching, and geographic or capacity constraints.
+
+- **Targeting algorithms**: compare multiple targeting strategies across intervention classes.
+  
+  - **Universal targeting**:  apply the intervention to all hospitals, admissions, or eligible transfers.
+  
+  - **Hospital-type targeting**:  target selected facility categories, such as tertiary or referral hospitals.
+  
+  - **Network-informed targeting**:  target hospitals based on their role in the network, including measures such as degree or weighted degree, betweenness centrality, transfer volume, and bridge or hub status.
+  
+  - **Epidemiologic targeting**:  target hospitals based on epidemiologic burden, such as baseline prevalence, importation burden, and acquisition burden.
+
+#### **Seeding event analyses**
+  
+  This section will define how observed epidemiologic data and surveillance data are used to identify and interpret seeding events.
+  
+  - **Definition and identification of seeding events**:     analyze epidemiologic and surveillance data to identify AMR seeding events at the regional or country level for different antibiotic-resistant bacteria.
+  
+  - **Source attribution of seeding events**:   disentangle the relative contribution of environmental sources, human population sources, importation from foreign countries, and transmission through the healthcare network.
+  
+  - **Identification of potential infector hospitals**:  identify candidate infector hospitals associated with newly colonized hospitals by considering temporal delay between reported cases, network distance, and number of transferred patients.
+  
+  - **Comparative role of importation versus within-network spread**:  assess whether observed seeding events are more consistent with external introduction into the region or country or with propagation through the domestic healthcare network.
+
+#### **Simulation of seeding events and downstream spread**
+  
+  This section will describe how seeding events are imposed in the dynamic model and how their downstream consequences are evaluated.
+  
+  - **Simulation framework**:  use the network-based dynamic models developed in Task 3 to simulate outbreaks initiated by seeding events.
+  
+  - **Seed-location characteristics**: vary the characteristics of the healthcare institution where the pathogen is first seeded, including institution type, network position, and geographic area.
+  
+  - **Pathogen-specific characteristics**: perform these analyses for different antibiotic-resistant bacteria and vary bacterial characteristics such as carriage duration and transmissibility.
+  
+  - **Network-specific comparison across settings**: conduct the analyses in France and Germany to determine how pathogen characteristics and network structure influence the effect of seeding events on subsequent spread.
+
+#### **Statistical analysis of simulation outputs**
+  
+  This section will describe how simulation results are summarized and modeled.
+  
+  - **Evaluation of spread patterns**: analyze simulation outputs to quantify how characteristics of the seeding event and seeded institution shape downstream epidemiologic patterns.
+  
+  - **Explanatory factors**: evaluate the impact of institution type, network position, geographic location, pathogen carriage duration, pathogen transmissibility, and network structure.
+  
+  - **Outcome metrics**: summarize spread using outcomes such as regional prevalence, cumulative acquisitions, cumulative importations, number of affected hospitals, and speed and extent of dissemination across the network.
+
+#### **Risk mapping**
+  
+  This section will translate simulation outputs into spatially interpretable institution-level risk summaries.
+  
+  - **Institution-level risk maps**: generate risk maps quantifying the level of risk associated with a seeding event in a given institution.
+  
+  - **Cross-pathogen and cross-country comparison**   compare these risk maps across antibiotic-resistant bacteria and across France and Germany to identify settings in which seeding events are most likely to drive broader dissemination.
+
+#### **Scenario families to pre-specify**
+  
+  This section will define the major intervention families that should be created before large simulation runs begin.
+  
+  - **IPC scenarios**
+    
+     evaluate IPC in all hospitals, IPC in selected hospital types, IPC in the most central hospitals, and IPC in hospitals with high baseline burden.
+  
+  - **Screening scenarios**
+    
+     evaluate screening at all admissions, screening at transfer-in admissions only, screening in selected hospital types, screening targeted to patients transferred from selected source hospitals, and screening targeted to high-risk hospitals.
+  
+  - **Network modification scenarios**
+    
+     evaluate rerouting transfers away from highly central hospitals, rerouting transfers from high-prevalence hospitals, rerouting selected high-volume edges, and rerouting within the same hospital type while preserving total patient flow.
+
+
+
+```{r libraries, include=FALSE}
+library(here)
+library(tidyverse)
+library(tictoc)
+
+#install.packages("furrr")
+library(furrr)
+library(future)
+library(dplyr)
+library(purrr)
+
+source(here("Code", "data-cleaning-network-model.R"))
+```
+
+## Data input and preprocessing
+
+### Daily admissions data
+
+Data cleaning codes were loaded in previous codes. Reviewing what the input datasets look like.
+
+```{r view-admissions}
+
+adm_daily <- daily_admission %>%
+  clean_names() %>%
+  mutate(
+    date = as.Date(date_entree),
+    daily_admissions = as.integer(no_admissions)
+  ) %>%
+  select(finess_geo, date, daily_admissions)
+
+head(daily_admission)
+```
+
+### Transfer data
+
+Prepare the weekly or daily transfer dataset.
+
+```{r clean-transfers}
+
+#Getting the date start as the last date
+transfers <- weekly %>%
+  clean_names() %>%
+  mutate(
+    finess_geo_origin = as.character(finess_geo_origin),
+    finess_geo_target = as.character(finess_geo_target),
+    transfer_date = as.Date(window_end),
+    weight = as.numeric(weight)
+  ) 
+head(transfers)
+```
+
+### Hospital attributes
+
+Construct the hospital universe and attach bed counts, coordinates, type, region, and other metadata.
+
+```{r hospital-universe}
+head(coords_beds_active)
+```
+
+## Helper functions
+
+### Length-of-stay or other stochastic draws
+
+Define helper functions for bounded random draws. I'm putting this as a placeholder but we actually don't really need this since we're using the assumption of full occupancy for all hospitals. 
+
+```{r helper-los, include = FALSE}
+ # note: im putting this as a pla
+# --------------------------------------------------------
+# Draw integer LOS from a bounded normal-like distribution
+# --------------------------------------------------------
+sample_los <- function(n, mean_los = 7, sd_los = 2, min_los = 1, max_los = 15) {
+  x <- round(rnorm(n, mean = mean_los, sd = sd_los))
+  x <- pmax(min_los, pmin(max_los, x))
+  as.integer(x)
+}
+
+
+#We now have LOS data from Srichand, we can calculate the LOS here. (Placeholder)
+```
+
+### State initialization
+
+
+We selected candidate seed hospitals to represent distinct epidemiologically plausible seeding scenarios, including hospitals with high transfer volume, high network centrality, large bed capacity, selected facility types, and randomly chosen hospitals. We then simulated pathogen introduction separately in each seed hospital and summarized downstream spread across simulations to estimate how seeding location influences dissemination. 
+
+We're going to choose multiple seeding hospital in the simulations, including
+1. The largest hospital by Bed Size
+2. The hospital with largest outgoing transfers
+3. The hospital with highest betweenness (bridges)
+4. Random acute care hospitals
+5. Random long-term care hospitals 
+
+```{r seed-options}
+
+library(igraph)
+library(purrr)
+
+#--------------------------------------------------
+# Build hospital-level metrics for seed selection
+#--------------------------------------------------
+
+# In-degree = number of distinct hospitals sending to this hospital
+incoming_tbl <- transfers %>%
+  distinct(finess_geo_origin, finess_geo_target) %>%
+  group_by(finess_geo = finess_geo_target) %>%
+  summarise(
+    in_degree = n(),
+    .groups = "drop"
+  )
+
+# Out-degree = number of distinct hospitals receiving from this hospital
+outgoing_tbl <- transfers %>%
+  distinct(finess_geo_origin, finess_geo_target) %>%
+  group_by(finess_geo = finess_geo_origin) %>%
+  summarise(
+    out_degree = n(),
+    .groups = "drop"
+  )
+
+# Hospital universe
+all_hospitals_tbl <- bind_rows(
+  transfers %>% transmute(finess_geo = finess_geo_origin),
+  transfers %>% transmute(finess_geo = finess_geo_target)
+) %>%
+  distinct()
+
+#--------------------------------------------------
+# Faster betweenness calculation
+#--------------------------------------------------
+# Collapse repeated edges first, and collapse by year
+transfers_yr = transfers %>% 
+  group_by(finess_geo_origin, finess_geo_target) %>% 
+  summarise(
+    weight = sum(weight)
+  )
+
+g_simple <- graph_from_data_frame(transfers_yr, directed = TRUE)
+
+# Faster approximate betweenness using a path-length cutoff
+# Increase cutoff for more accuracy, decrease for more speed
+centrality_tbl <- tibble(
+  finess_geo = V(g_simple)$name,
+  betweenness = estimate_betweenness(
+    g_simple,
+    vids = V(g_simple),
+    directed = TRUE,
+    cutoff = 5
+  )
+)
+
+# Combine metrics
+seed_metrics <- all_hospitals_tbl %>%
+  left_join(incoming_tbl, by = "finess_geo") %>%
+  left_join(outgoing_tbl, by = "finess_geo") %>%
+  left_join(centrality_tbl, by = "finess_geo") %>%
+  mutate(
+    in_degree = replace_na(in_degree, 0L),
+    out_degree = replace_na(out_degree, 0L),
+    betweenness = replace_na(betweenness, 0)
+  )
+#--------------------------------------------------
+# Select one seed hospital by in-degree, out-degree, and betweenness
+#--------------------------------------------------
+
+
+seed_panel <- bind_rows(
+  seed_metrics %>%
+    slice_max(order_by = in_degree, n = 1, with_ties = FALSE) %>%
+    mutate(seed_rule = "highest_in_degree"),
+  
+  seed_metrics %>%
+    slice_max(order_by = out_degree, n = 1, with_ties = FALSE) %>%
+    mutate(seed_rule = "highest_out_degree"),
+  
+  seed_metrics %>%
+    slice_max(order_by = betweenness, n = 1, with_ties = FALSE) %>%
+    mutate(seed_rule = "highest_betweenness"),
+  
+  seed_metrics %>%
+    slice_sample(n = 1) %>%
+    mutate(seed_rule = "random_hospital")
+) 
+
+#Seeding based on the largest number of beds
+
+largest_beds = coords_beds_active %>% 
+  slice_max(order_by = no_beds, n=1, with_ties = FALSE) %>% 
+  mutate(seed_rule = "largest_beds") %>% 
+  dplyr::select(seed_rule, finess_geo)
+
+# most admissions
+largest_admissions = coords_beds_active %>% 
+  slice_max(order_by = no_beds, n=1, with_ties = FALSE) %>% 
+  mutate(seed_rule = "largest_admission") %>% 
+  dplyr::select(seed_rule, finess_geo)
+
+# Largest outgoing transfers
+largest_outgoing_seed <- transfers %>%
+  group_by(finess_geo_origin) %>%
+  summarise(
+    total_outgoing = sum(weight, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  slice_max(order_by = total_outgoing, n = 1, with_ties = FALSE) %>%
+  rename(finess_geo = finess_geo_origin) %>%
+  mutate(seed_rule = "largest_outgoing_transfers")
+
+largest_outgoing_seed
+
+# Largest incoming transfers
+largest_incoming_seed <- transfers %>%
+  group_by(finess_geo_target) %>%
+  summarise(
+    total_incoming = sum(weight, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  slice_max(order_by = total_incoming, n = 1, with_ties = FALSE) %>%
+  rename(finess_geo = finess_geo_target) %>%
+  mutate(seed_rule = "largest_incoming_transfers")
+
+largest_incoming_seed
+
+seed_panel_final = bind_rows(seed_panel, largest_beds, largest_admissions, 
+                       largest_incoming_seed, largest_outgoing_seed) %>% 
+  dplyr::select(seed_rule, finess_geo) %>% 
+  group_by(finess_geo) %>%
+  summarise(
+    seed_rule = paste(seed_rule, collapse = " + "),
+    .groups = "drop"
+  ) %>%
+  select(seed_rule, finess_geo)
+
+#Remove dups 
+seed_panel_final 
+```
+
+
+```{r initialize-state}
+
+# -----------------------------------------------------------
+# Build hospital universe from all origins and targets
+# then attach no_beds
+# -----------------------------------------------------------
+all_transfer_hospitals <- bind_rows(
+  transfers %>% transmute(finess_geo = finess_geo_origin),
+  transfers %>% transmute(finess_geo = finess_geo_target)
+) %>%
+  distinct()
+
+#  getting the list of hospitals involved
+# if there's no beds reported, we fill it with the mean number of beds
+hospitals <- all_transfer_hospitals %>%
+  left_join(
+    coords_beds_active %>%
+      clean_names() %>%
+      transmute(
+        finess_geo = as.character(finess_geo),
+        no_beds = readr::parse_number(as.character(no_beds))
+      ) %>%
+      distinct(),
+    by = "finess_geo"
+  ) %>%
+  mutate(
+    mean_beds = round(mean(no_beds, na.rm = TRUE)),
+    no_beds = if_else(is.na(no_beds), mean_beds, no_beds),
+    no_beds = as.integer(round(no_beds))
+  ) %>%
+  select(finess_geo, no_beds)
+
+# -------------------------------------------------------------------
+# Create one occupied bed = one patient at time 0 as the initial infected
+# this is simulating a one-patient importation
+# Seed infection into one hospital
+# -------------------------------------------------------------------
+# -----------------------------------------------------------
+# Initialize hospital-level state
+# -----------------------------------------------------------
+initialize_hospital_state <- function(hospitals,
+                                      seed_hospital,
+                                      n_seed_infected = 1) {
+  
+  hospitals %>%
+    mutate(
+      n_infected = if_else(
+        finess_geo == seed_hospital,
+        pmin(n_seed_infected, no_beds),
+        0L
+      ),
+      prevalence = n_infected / no_beds
+    )
+}
+```
+
+### ***Daily infected transfer calculation**
+
+Create the function that converts origin prevalence and transfer weights into infected transfers.
+
+```{r infected-transfers}
+# TODO:
+# Define compute_daily_infected_transfers()
+
+
+# -----------------------------------------------------------
+# For one day of transfers:
+# infected transferred on each edge = round(weight * prevalence_origin)
+#
+# Then cap total infected outgoing from each hospital so we do not
+# transfer out more infected than currently exist in that hospital.
+# -----------------------------------------------------------
+compute_daily_infected_transfers_fast <- function(state, transfers_day) {
+  
+  if (nrow(transfers_day) == 0) {
+    return(tibble(
+      finess_geo_origin = character(),
+      finess_geo_target = character(),
+      weight = integer(),
+      prev_origin = numeric(),
+      infected_transfer = integer()
+    ))
+  }
+  
+  # fast lookup from state to transfer origins
+  idx_origin <- match(transfers_day$finess_geo_origin, state$finess_geo)
+  
+  prev_origin <- state$prevalence[idx_origin]
+  n_infected_origin <- state$n_infected[idx_origin]
+  
+  prev_origin[is.na(prev_origin)] <- 0
+  n_infected_origin[is.na(n_infected_origin)] <- 0L
+  
+  # stochastic infected transfers on each edge
+  infected_transfer_raw <- rbinom(
+    n = nrow(transfers_day),
+    size = transfers_day$weight,
+    prob = prev_origin
+  )
+  
+  infected_transfer <- infected_transfer_raw
+  
+  # cap by origin hospital so total infected outgoing does not exceed available infected
+  split_idx <- split(seq_len(nrow(transfers_day)), transfers_day$finess_geo_origin)
+  
+  for (idx in split_idx) {
+    infected_available <- n_infected_origin[idx[1]]
+    proposed_total <- sum(infected_transfer_raw[idx], na.rm = TRUE)
+    
+    if (infected_available <= 0L || proposed_total <= 0L) {
+      infected_transfer[idx] <- 0L
+    } else if (proposed_total > infected_available) {
+      scaled <- infected_transfer_raw[idx] * infected_available / proposed_total
+      base_alloc <- floor(scaled)
+      remainder <- scaled - base_alloc
+      
+      left_to_assign <- infected_available - sum(base_alloc)
+      
+      if (left_to_assign > 0L) {
+        add_one_idx <- order(remainder, decreasing = TRUE)[seq_len(left_to_assign)]
+        base_alloc[add_one_idx] <- base_alloc[add_one_idx] + 1L
+      }
+      
+      infected_transfer[idx] <- as.integer(base_alloc)
+    }
+  }
+  
+  tibble(
+    finess_geo_origin = transfers_day$finess_geo_origin,
+    finess_geo_target = transfers_day$finess_geo_target,
+    weight = transfers_day$weight,
+    prev_origin = prev_origin,
+    infected_transfer = as.integer(infected_transfer)
+  )
+}
+# - cap outgoing infected transfers by current infected stock
+# - return edge-level infected transfers
+```
+
+## Core simulation engine
+
+### One-day aggregate simulation step
+
+Implement the daily update step.
+
+```{r simulate-one-day}
+# TODO:
+# - define simulate_one_day_agg()
+
+# - process transfers for current date
+# - update infected counts after transfer
+# - implement community replacement if applicable
+# - implement clearance
+# - implement within-hospital transmission
+# - return updated state and daily summaries
+simulate_one_day_agg_fast <- function(state,
+                                      transfers_day,
+                                      current_date,
+                                      beta_within = 0.05,
+                                      gamma_clear = 1 / 387,
+                                      admission_prev = 0) {
+  
+  infected_transfers <- compute_daily_infected_transfers_fast(
+    state = state,
+    transfers_day = transfers_day
+  )
+  
+  infected_out <- integer(nrow(state))
+  infected_in  <- integer(nrow(state))
+  
+  if (nrow(infected_transfers) > 0) {
+    idx_out <- match(infected_transfers$finess_geo_origin, state$finess_geo)
+    idx_in  <- match(infected_transfers$finess_geo_target, state$finess_geo)
+    
+    out_sum <- tapply(infected_transfers$infected_transfer, idx_out, sum)
+    in_sum  <- tapply(infected_transfers$infected_transfer, idx_in, sum)
+    
+    infected_out[as.integer(names(out_sum))] <- as.integer(out_sum)
+    infected_in[as.integer(names(in_sum))]   <- as.integer(in_sum)
+  }
+  
+  infected_replaced_from_community <- rbinom(
+    n = nrow(state),
+    size = infected_out,
+    prob = admission_prev
+  )
+  
+  n_infected_after_transfer <- state$n_infected - infected_out + infected_in + infected_replaced_from_community
+  n_infected_after_transfer <- pmax(0L, pmin(n_infected_after_transfer, state$no_beds))
+  
+  # stochastic clearance
+  n_cleared <- rbinom(
+    n = nrow(state),
+    size = n_infected_after_transfer,
+    prob = gamma_clear
+  )
+  
+  n_infected_after_clear <- n_infected_after_transfer - n_cleared
+  
+  n_susceptible <- state$no_beds - n_infected_after_clear
+  
+  p_infection <- 1 - exp(-beta_within * (n_infected_after_clear / state$no_beds))
+  p_infection <- pmin(pmax(p_infection, 0), 1)
+  
+  n_new_infected <- rbinom(
+    n = nrow(state),
+    size = n_susceptible,
+    prob = p_infection
+  )
+  
+  n_infected_final <- n_infected_after_clear + n_new_infected
+  n_infected_final <- pmax(0L, pmin(n_infected_final, state$no_beds))
+  
+  state_new <- tibble(
+    finess_geo = state$finess_geo,
+    no_beds = state$no_beds,
+    n_infected = as.integer(n_infected_final),
+    prevalence = n_infected_final / state$no_beds
+  )
+  
+  daily_summary <- tibble(
+    date = current_date,
+    finess_geo = state_new$finess_geo,
+    no_beds = state_new$no_beds,
+    n_infected = state_new$n_infected,
+    prevalence = state_new$prevalence
+  )
+  
+  overall_summary <- tibble(
+    date = current_date,
+    total_patients = sum(state_new$no_beds),
+    total_infected = sum(state_new$n_infected),
+    overall_prevalence = sum(state_new$n_infected) / sum(state_new$no_beds),
+    n_hospitals_with_case = sum(state_new$n_infected > 0)
+  )
+  
+  list(
+    state = state_new,
+    daily_summary = daily_summary,
+    overall_summary = overall_summary,
+    infected_transfers = infected_transfers
+  )
+}
+
+```
+
+### Full simulation wrapper
+
+Run the model across the full date range.
+
+```{r run-simulation}
+library(tidyverse)
+library(purrr)
+
+
+run_sis_simulation_agg_fast <- function(hospitals,
+                                        transfers,
+                                        start_date,
+                                        end_date,
+                                        seed_hospital = NULL,
+                                        n_seed_infected = 1,
+                                        beta_within = 0.05,
+                                        gamma_clear = 1 / 387,
+                                        admission_prev = 0.001,
+                                        seed = 123,
+                                        store_transfer_results = FALSE) {
+  
+  set.seed(seed)
+  
+  if (is.null(seed_hospital)) {
+    seed_hospital <- transfers %>%
+      group_by(finess_geo_origin) %>%
+      summarise(total_outgoing = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+      slice_max(order_by = total_outgoing, n = 1, with_ties = FALSE) %>%
+      pull(finess_geo_origin)
+  }
+  
+  state <- initialize_hospital_state(
+    hospitals = hospitals,
+    seed_hospital = seed_hospital,
+    n_seed_infected = n_seed_infected
+  )
+  
+  sim_dates <- seq.Date(
+    from = as.Date(start_date),
+    to = as.Date(end_date),
+    by = "day"
+  )
+  
+  # pre-split transfers once
+  transfers_use <- transfers %>%
+    mutate(transfer_date = as.Date(transfer_date)) %>%
+    select(transfer_date, finess_geo_origin, finess_geo_target, weight)
+  
+  transfers_by_day <- split(
+    transfers_use[, c("finess_geo_origin", "finess_geo_target", "weight")],
+    transfers_use$transfer_date
+  )
+  
+  daily_results <- vector("list", length(sim_dates))
+  overall_results <- vector("list", length(sim_dates))
+  
+  if (store_transfer_results) {
+    transfer_results <- vector("list", length(sim_dates))
+  }
+  
+  for (i in seq_along(sim_dates)) {
+    current_date <- sim_dates[i]
+    transfers_day <- transfers_by_day[[as.character(current_date)]]
+    
+    if (is.null(transfers_day)) {
+      transfers_day <- tibble(
+        finess_geo_origin = character(),
+        finess_geo_target = character(),
+        weight = integer()
+      )
+    }
+    
+    out <- simulate_one_day_agg_fast(
+      state = state,
+      transfers_day = transfers_day,
+      current_date = current_date,
+      beta_within = beta_within,
+      gamma_clear = gamma_clear,
+      admission_prev = admission_prev
+    )
+    
+    state <- out$state
+    daily_results[[i]] <- out$daily_summary
+    overall_results[[i]] <- out$overall_summary
+    
+    if (store_transfer_results) {
+      transfer_results[[i]] <- out$infected_transfers %>%
+        mutate(date = current_date)
+    }
+  }
+  
+  result <- list(
+    seed_hospital = seed_hospital,
+    state_final = state,
+    daily_results = bind_rows(daily_results),
+    overall_results = bind_rows(overall_results)
+  )
+  
+  if (store_transfer_results) {
+    result$infected_transfer_results <- bind_rows(transfer_results)
+  }
+  
+  result
+}
+
+
+```
+
+## Baseline simulation
+
+### Baseline parameter values
+
+Specify the default values for transmission, clearance, importation, and seed assumptions.
+
+```{r baseline-parameters}
+# TODO:
+# - define beta_within
+# - define gamma_clear
+# - define admission_prev
+# - define start and end date
+# - define n_seed_infected
+
+# Fixed epidemiologic parameters
+beta_within_val   <- 0.104
+gamma_clear_val   <- 1 / 387
+admission_prev_val <- 0
+n_seed_infected_val <- 1
+
+
+# number of simulation replicates per seed scenario
+n_sim <- 10
+
+# Simulation settings
+sim_start_date <- "2024-01-07"
+sim_end_date   <- "2025-01-31"
+
+```
+
+### Run the baseline model
+
+Execute the baseline simulation.
+
+```{r baseline-run}
+
+sim_seeds <- seq_len(n_sim)
+
+simulation_grid <- seed_panel_final %>%
+  rename(seed_hospital = finess_geo) %>%
+  tidyr::crossing(sim_id = sim_seeds) %>%
+  mutate(
+    sim_seed = 1000 + sim_id
+  ) %>%
+  mutate(
+    seed_hospital_iter = pmap_chr(
+      list(seed_rule, seed_hospital, sim_seed),
+      function(seed_rule, seed_hospital, sim_seed) {
+        if (grepl("random_hospital", seed_rule)) {
+          set.seed(sim_seed)
+          sample(hospitals$finess_geo, size = 1)
+        } else {
+          seed_hospital
+        }
+      }
+    )
+  )
+simulation_grid <- simulation_grid %>%
+  mutate(
+    seed_hospital_iter = pmap_chr(
+      list(seed_rule, seed_hospital, sim_seed),
+      function(seed_rule, seed_hospital, sim_seed) {
+        if (seed_rule == "random_hospital") {
+          set.seed(sim_seed)
+          sample(hospitals$finess_geo, size = 1)
+        } else {
+          seed_hospital
+        }
+      }
+    )
+  )
+
+# ADDING PARALLELIZATION TO THE PLAN
+plan(multisession, workers = parallelly::availableCores() - 1)
+
+
+#install.packages("progressr")
+
+library(progressr)
+
+#handlers(global = TRUE)
+handlers("txtprogressbar")
+
+with_progress({
+  all_simulations <- simulation_grid %>%
+    mutate(
+      sim = future_map2(
+        seed_hospital_iter,
+        sim_seed,
+        \(seed_hospital, sim_seed) {
+          run_sis_simulation_agg_fast(
+            hospitals = hospitals,
+            transfers = transfers,
+            start_date = sim_start_date,
+            end_date   = sim_end_date,
+            seed_hospital = seed_hospital,
+            n_seed_infected = n_seed_infected_val,
+            beta_within = beta_within_val,
+            gamma_clear = gamma_clear_val,
+            admission_prev = admission_prev_val,
+            seed = sim_seed,
+            store_transfer_results = FALSE
+          )
+        },
+        .options = furrr_options(seed = TRUE)
+      )
+    )
+})
+#toc()
+
+plan(sequential)
+# 
+# 
+# #--------------------------------------------------
+# # Extract overall results
+# #--------------------------------------------------
+# 
+# overall_results_by_seed <- multi_seed_results %>%
+#   transmute(
+#     seed_rule,
+#     seed_hospital = finess_geo,
+#     overall_results = map(sim, "overall_results")
+#   ) %>%
+#   unnest(overall_results)
+# 
+# overall_results_by_seed
+# 
+# #--------------------------------------------------
+# # Summarize impact of each seed
+# #--------------------------------------------------
+# 
+# seed_impact_summary <- overall_results_by_seed %>%
+#   group_by(seed_rule, seed_hospital) %>%
+#   summarise(
+#     peak_total_infected = max(total_infected, na.rm = TRUE),
+#     peak_prevalence = max(overall_prevalence, na.rm = TRUE),
+#     peak_hospitals_with_case = max(n_hospitals_with_case, na.rm = TRUE),
+#     final_total_infected = dplyr::last(total_infected),
+#     final_prevalence = dplyr::last(overall_prevalence),
+#     final_hospitals_with_case = dplyr::last(n_hospitals_with_case),
+#     cumulative_infected_burden = sum(total_infected, na.rm = TRUE),
+#     .groups = "drop"
+#   )
+# 
+# seed_impact_summary
+```
+
+## Baseline output summaries and plots
+
+### Overall epidemic trajectory
+
+Plot total infected over time.
+
+```{r plot-total-infected}
+# TODO:
+# - create line plot for total infected
+# - optionally add confidence intervals if multiple runs are used
+```
+
+### Number of hospitals affected
+
+Plot the number of hospitals with at least one case.
+
+```{r plot-hospitals-affected}
+# TODO:
+# - summarize daily count of hospitals with infection
+# - create time-series plot
+```
+
+### Export saved outputs
+
+Write simulation outputs to file.
+
+```{r save-outputs}
+# TODO:
+# - save daily results
+# - save overall results
+# - save infected transfer results if needed
+```
+
+## Intervention scenario engine
+
+### IPC intervention implementation
+
+Create functions that reduce within-hospital transmission in selected hospitals.
+
+```{r ipc-scenarios}
+# TODO:
+# - define how beta_within changes under IPC scenarios
+# - allow universal, hospital-type, network-based, and burden-based targeting
+```
+
+### Admission screening implementation
+
+Create functions that reduce importation at admission or transfer-in.
+
+```{r screening-scenarios}
+# TODO:
+# - define screening probability
+# - define screening effectiveness
+# - apply to all admissions, transfer-ins, or targeted groups
+```
+
+### Network modification implementation
+
+Create functions that modify transfer matrices while preserving chosen constraints.
+
+```{r network-modification-scenarios}
+# TODO:
+# - reroute selected transfers
+# - preserve total transfer volume where required
+# - preserve hospital type matching or geography where required
+```
+
+### Scenario grid
+
+Build a master table of all scenarios to run.
+
+```{r scenario-grid}
+# TODO:
+# - define scenario IDs
+# - define scenario family
+# - define target rule
+# - define intervention intensity
+# - define operational constraints
+```
+
+## Targeting algorithms
+
+### Universal targeting
+
+```{r universal-targeting}
+# TODO:
+# - define a function that targets all eligible units
+```
+
+### Hospital-type targeting
+
+```{r hospital-type-targeting}
+# TODO:
+# - define facility categories
+# - select eligible hospitals by type
+```
+
+### Network-informed targeting
+
+```{r network-informed-targeting}
+# TODO:
+# - compute degree, weighted degree, betweenness, bridge status, hub status
+# - rank hospitals and select top targets
+```
+
+### Epidemiologic targeting
+
+```{r epidemiologic-targeting}
+# TODO:
+# - compute baseline prevalence, importation burden, acquisition burden
+# - target high-burden hospitals
+```
+
+## Seeding event analyses
+
+### Identify seeding events from observed data
+
+```{r identify-seeding-events}
+# TODO:
+# - define operational criteria for a seeding event
+# - apply to surveillance and epidemiologic data
+```
+
+### Attribute likely seeding sources
+
+```{r source-attribution}
+# TODO:
+# - compare external importation versus domestic network spread
+# - combine timing, transfer counts, and network proximity
+```
+
+### Identify candidate infector hospitals
+
+```{r candidate-infector-hospitals}
+# TODO:
+# - rank candidate source hospitals
+# - use time lag, patient sharing, and network distance
+```
+
+## Simulation experiments for seeding events
+
+### Vary seed-location characteristics
+
+```{r vary-seed-locations}
+# TODO:
+# - simulate seeding in different hospital types
+# - simulate seeding in different network positions
+# - simulate seeding in different geographic regions
+```
+
+### Vary pathogen-specific characteristics
+
+```{r vary-pathogen-characteristics}
+# TODO:
+# - vary carriage duration
+# - vary transmissibility
+# - compare rare versus common ARB assumptions
+```
+
+### Cross-country comparison
+
+```{r cross-country-comparison}
+# TODO:
+# - replicate workflow for France and Germany
+# - harmonize outputs for comparison
+```
+
+## Statistical analysis of simulation outputs
+
+### Simulation summary dataset
+
+```{r simulation-summary-data}
+# TODO:
+# - construct one row per simulation run or scenario
+# - include outcome metrics and explanatory variables
+```
+
+### Model explanatory factors
+
+```{r explanatory-models}
+# TODO:
+# - fit regression or mixed models to quantify effects of seed and network characteristics
+# - consider institution type, network metrics, geography, transmissibility, and carriage duration
+```
+
+### Outcome metrics
+
+```{r outcome-metrics}
+# TODO:
+# - compute regional prevalence
+# - compute cumulative acquisitions
+# - compute cumulative importations
+# - compute number of affected hospitals
+# - compute speed and extent of spread
+```
+
+## Risk mapping
+
+### Institution-level risk maps
+
+```{r institution-risk-maps}
+# TODO:
+# - join institution-level risk estimates to geographic coordinates
+# - produce maps for seeding-event risk
+```
+
+### Cross-pathogen and cross-country maps
+
+```{r comparative-risk-maps}
+# TODO:
+# - compare maps across pathogens
+# - compare maps across France and Germany
+```
+
+## Manuscript-ready tables and figures
+
+### Table shells
+
+```{r table-shells}
+# TODO:
+# - create table shells for scenario definitions
+# - create table shells for seeding event summaries
+# - create table shells for intervention effects
+```
+
+### Figure shells
+
+```{r figure-shells}
+# TODO:
+# - epidemic trajectories
+# - affected-hospital curves
+# - network or map figures
+# - risk maps
+```
+
+## Notes for next coding steps
+
+- First populate the early data and simulation sections using the current simulation script.
+- Then implement reusable intervention functions in the intervention engine section.
+- Next add targeting logic so interventions can be applied consistently across scenario families.
+- After that, build the observed-data seeding analysis.
+- Finally, run multi-scenario simulation experiments and summarize the outputs in the statistical analysis and mapping sections.
