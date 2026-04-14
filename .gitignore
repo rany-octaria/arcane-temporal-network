@@ -6,3 +6,4 @@
 *.sas7bdat
 /Datasets
 .DS_Store
+/Outputs

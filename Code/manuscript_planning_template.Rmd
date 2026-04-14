@@ -119,8 +119,6 @@ knitr::opts_chunk$set(
 library(here)
 library(tidyverse)
 library(tictoc)
-
-#install.packages("furrr")
 library(furrr)
 library(future)
 library(dplyr)
@@ -721,36 +719,106 @@ Specify the default values for transmission, clearance, importation, and seed as
 # - define n_seed_infected
 
 # Fixed epidemiologic parameters
-beta_within_val   <- 0.104
-gamma_clear_val   <- 1 / 387
+
+gamma_clear_val   <- 1 / 387  #Keep it a very long time for now, vary the beta 
 admission_prev_val <- 0
 n_seed_infected_val <- 1
 
 
 # number of simulation replicates per seed scenario
-n_sim <- 10
+n_sim_per_regime <- 100
 
 # Simulation settings
 sim_start_date <- "2024-01-07"
-sim_end_date   <- "2025-01-31"
+sim_end_date   <- "2024-12-31"
 
 ```
 
-### Run the baseline model
 
-Execute the baseline simulation.
+```{r setting beta-variability}
+# -----------------------------------------------------------
+# Create one transmissibility draw per sim_id
+#
+# Each sim_id belongs to one transmission regime:
+# - low:  R0 < 1
+# - mid:  R0 around 1
+# - high: R0 between 1 and 2
+#
+# beta_within is then computed as:
+#   beta_within = R0 * gamma_clear
+# -----------------------------------------------------------
+beta_lookup <- tibble(
+  beta_regime = rep(c("low", "mid", "high"), each = n_sim_per_regime),
+  sim_id_within_regime = rep(seq_len(n_sim_per_regime), times = 3)
+) %>%
+  mutate(
+    sim_id = row_number(),
+    
+    # reproducible RNG seed for the R0 draw
+    beta_seed = 50000 + sim_id,
+    
+    # draw one R0 value within each regime
+    R0_iter = pmap_dbl(
+      list(beta_regime, beta_seed),
+      function(beta_regime, beta_seed) {
+        set.seed(beta_seed)
+        
+        if (beta_regime == "low") {
+          runif(1, min = 0.20, max = 0.95)
+        } else if (beta_regime == "mid") {
+          runif(1, min = 0.95, max = 1.2)
+        } else if (beta_regime == "high") {
+          runif(1, min = 1.20, max = 2)
+        } else {
+          stop("Unknown beta_regime")
+        }
+      }
+    ),
+    
+    # convert R0 to beta using the SIS threshold approximation
+    beta_within_iter = R0_iter * gamma_clear_val
+  )
 
-```{r baseline-run}
+beta_lookup %>%
+  group_by(beta_regime) %>%
+  summarise(
+    min_R0 = min(R0_iter),
+    max_R0 = max(R0_iter),
+    min_beta = min(beta_within_iter),
+    max_beta = max(beta_within_iter),
+    .groups = "drop"
+  )
 
-sim_seeds <- seq_len(n_sim)
+```
 
+#### Building Simulation Grid
+
+```{r sim-grid}
+# -----------------------------------------------------------
+# Build the simulation grid
+#
+# Each row is:
+# - one seed scenario
+# - one sim_id
+#
+# All seed types sharing the same sim_id will also share:
+# - beta_regime
+# - R0_iter
+# - beta_within_iter
+#
+# This makes comparisons across seed types fairer.
+# -----------------------------------------------------------
 simulation_grid <- seed_panel_final %>%
   rename(seed_hospital = finess_geo) %>%
-  tidyr::crossing(sim_id = sim_seeds) %>%
+  tidyr::crossing(sim_id = beta_lookup$sim_id) %>%
+  left_join(beta_lookup, by = "sim_id") %>%
   mutate(
+    # simulation seed for the stochastic epidemic process
     sim_seed = 1000 + sim_id
   ) %>%
   mutate(
+    # for the random hospital scenario, draw a different hospital
+    # for each replicate; otherwise keep the fixed seed hospital
     seed_hospital_iter = pmap_chr(
       list(seed_rule, seed_hospital, sim_seed),
       function(seed_rule, seed_hospital, sim_seed) {
@@ -763,97 +831,950 @@ simulation_grid <- seed_panel_final %>%
       }
     )
   )
-simulation_grid <- simulation_grid %>%
-  mutate(
-    seed_hospital_iter = pmap_chr(
-      list(seed_rule, seed_hospital, sim_seed),
-      function(seed_rule, seed_hospital, sim_seed) {
-        if (seed_rule == "random_hospital") {
-          set.seed(sim_seed)
-          sample(hospitals$finess_geo, size = 1)
-        } else {
-          seed_hospital
-        }
-      }
-    )
-  )
 
-# ADDING PARALLELIZATION TO THE PLAN
-plan(multisession, workers = parallelly::availableCores() - 1)
+# inspect the grid before running simulations
+simulation_grid %>%
+  select(
+    seed_rule,
+    seed_hospital,
+    seed_hospital_iter,
+    sim_id,
+    beta_regime,
+    R0_iter,
+    beta_within_iter,
+    sim_seed
+  ) %>%
+  arrange(beta_regime, sim_id, seed_rule) %>%
+  print(n = 30)
+
+```
 
 
-#install.packages("progressr")
+### Run the baseline model
 
+Execute the baseline simulation.
+
+```{r baseline-run}
+library(dplyr)
+library(furrr)
+library(future)
 library(progressr)
 
-#handlers(global = TRUE)
+# -----------------------------------------------------------
+# Wrapper for one simulation run
+# -----------------------------------------------------------
+run_one_sim <- function(seed_hospital, sim_seed, beta_within_iter) {
+  run_sis_simulation_agg_fast(
+    hospitals = hospitals,
+    transfers = transfers,
+    start_date = sim_start_date,
+    end_date   = sim_end_date,
+    seed_hospital = seed_hospital,
+    n_seed_infected = n_seed_infected_val,
+    beta_within = beta_within_iter,
+    gamma_clear = gamma_clear_val,
+    admission_prev = admission_prev_val,
+    seed = sim_seed,
+    store_transfer_results = FALSE
+  )
+}
+
+# -----------------------------------------------------------
+# Parallel plan + progress bar
+# -----------------------------------------------------------
+plan(multisession, workers = parallelly::availableCores() - 1)
 handlers("txtprogressbar")
 
+start_time <- Sys.time()
+
 with_progress({
+  
+  p <- progressor(steps = nrow(simulation_grid))
+  
   all_simulations <- simulation_grid %>%
     mutate(
-      sim = future_map2(
-        seed_hospital_iter,
-        sim_seed,
-        \(seed_hospital, sim_seed) {
-          run_sis_simulation_agg_fast(
-            hospitals = hospitals,
-            transfers = transfers,
-            start_date = sim_start_date,
-            end_date   = sim_end_date,
+      sim = future_pmap(
+        list(seed_hospital_iter, sim_seed, beta_within_iter),
+        function(seed_hospital, sim_seed, beta_within_iter) {
+          
+          res <- run_one_sim(
             seed_hospital = seed_hospital,
-            n_seed_infected = n_seed_infected_val,
-            beta_within = beta_within_val,
-            gamma_clear = gamma_clear_val,
-            admission_prev = admission_prev_val,
-            seed = sim_seed,
-            store_transfer_results = FALSE
+            sim_seed = sim_seed,
+            beta_within_iter = beta_within_iter
           )
+          
+          p(sprintf("completed sim_id seed=%s", sim_seed))
+          
+          res
         },
         .options = furrr_options(seed = TRUE)
       )
     )
 })
-#toc()
+
+end_time <- Sys.time()
+
+cat(
+  "\nTotal elapsed time:",
+  round(as.numeric(end_time - start_time, units = "secs"), 2),
+  "seconds\n"
+)
 
 plan(sequential)
-# 
-# 
-# #--------------------------------------------------
-# # Extract overall results
-# #--------------------------------------------------
-# 
-# overall_results_by_seed <- multi_seed_results %>%
-#   transmute(
-#     seed_rule,
-#     seed_hospital = finess_geo,
-#     overall_results = map(sim, "overall_results")
-#   ) %>%
-#   unnest(overall_results)
-# 
-# overall_results_by_seed
-# 
-# #--------------------------------------------------
-# # Summarize impact of each seed
-# #--------------------------------------------------
-# 
-# seed_impact_summary <- overall_results_by_seed %>%
-#   group_by(seed_rule, seed_hospital) %>%
-#   summarise(
-#     peak_total_infected = max(total_infected, na.rm = TRUE),
-#     peak_prevalence = max(overall_prevalence, na.rm = TRUE),
-#     peak_hospitals_with_case = max(n_hospitals_with_case, na.rm = TRUE),
-#     final_total_infected = dplyr::last(total_infected),
-#     final_prevalence = dplyr::last(overall_prevalence),
-#     final_hospitals_with_case = dplyr::last(n_hospitals_with_case),
-#     cumulative_infected_burden = sum(total_infected, na.rm = TRUE),
-#     .groups = "drop"
-#   )
-# 
-# seed_impact_summary
 ```
 
 ## Baseline output summaries and plots
+
+In this section, i'm going to just summarize the big file outputs, later to comment out
+the big chunnk with the simulations and then load pre-saved rds files for plotting
+
+```{r summarize outputs}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(scales)
+library(forcats)
+library(here)
+
+# -----------------------------------------------------------
+# Create save folder
+# -----------------------------------------------------------
+save_dir <- here::here("Outputs", "saved_results")
+
+if (!dir.exists(save_dir)) {
+  dir.create(save_dir, recursive = TRUE)
+}
+
+# -----------------------------------------------------------
+# 1. Extract overall simulation results into one long dataset
+#
+# This is the main plotting-ready dataset.
+# Each row = one date within one simulation replicate.
+# -----------------------------------------------------------
+overall_results_by_sim <- all_simulations %>%
+  transmute(
+    seed_rule,
+    seed_hospital,
+    seed_hospital_iter,
+    sim_id,
+    sim_seed,
+    beta_regime,
+    R0_iter,
+    beta_within_iter,
+    overall_results = map(sim, "overall_results")
+  ) %>%
+  unnest(overall_results)
+
+# quick check
+glimpse(overall_results_by_sim)
+
+# -----------------------------------------------------------
+# 2. Define clean seed ordering and labels for plots
+# -----------------------------------------------------------
+seed_levels <- c(
+  "highest_in_degree + highest_out_degree",
+  "highest_betweenness",
+  "largest_beds + largest_admission",
+  "largest_incoming_transfers",
+  "largest_outgoing_transfers",
+  "random_hospital"
+)
+
+seed_labels <- c(
+  "highest_in_degree + highest_out_degree" = "Highest in/out degree",
+  "highest_betweenness" = "Highest betweenness",
+  "largest_beds + largest_admission" = "Largest beds/admissions",
+  "largest_incoming_transfers" = "Largest incoming transfers",
+  "largest_outgoing_transfers" = "Largest outgoing transfers",
+  "random_hospital" = "Random hospital"
+)
+
+overall_results_by_sim <- overall_results_by_sim %>%
+  mutate(
+    seed_rule = factor(seed_rule, levels = seed_levels),
+    beta_regime = factor(beta_regime, levels = c("low", "mid", "high"))
+  )
+
+# -----------------------------------------------------------
+# 3. Summarize trajectories across ALL beta values combined
+#
+# For each seed type and date:
+# - median
+# - 25th percentile
+# - 75th percentile
+# -----------------------------------------------------------
+trajectory_summary_all_beta <- overall_results_by_sim %>%
+  group_by(seed_rule, date) %>%
+  summarise(
+    n_runs = n(),
+    
+    total_infected_median = median(total_infected, na.rm = TRUE),
+    total_infected_q25    = quantile(total_infected, 0.25, na.rm = TRUE),
+    total_infected_q75    = quantile(total_infected, 0.75, na.rm = TRUE),
+    
+    prevalence_median = median(overall_prevalence, na.rm = TRUE),
+    prevalence_q25    = quantile(overall_prevalence, 0.25, na.rm = TRUE),
+    prevalence_q75    = quantile(overall_prevalence, 0.75, na.rm = TRUE),
+    
+    hospitals_with_case_median = median(n_hospitals_with_case, na.rm = TRUE),
+    hospitals_with_case_q25    = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
+    hospitals_with_case_q75    = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
+    
+    .groups = "drop"
+  ) %>%
+  mutate(
+    seed_label = recode(as.character(seed_rule), !!!seed_labels)
+  )
+
+# -----------------------------------------------------------
+# 4. Summarize trajectories within each beta regime
+#
+# For each beta regime, seed type, and date:
+# - median
+# - 25th percentile
+# - 75th percentile
+# -----------------------------------------------------------
+trajectory_summary_by_beta_regime <- overall_results_by_sim %>%
+  group_by(beta_regime, seed_rule, date) %>%
+  summarise(
+    n_runs = n(),
+    
+    total_infected_median = median(total_infected, na.rm = TRUE),
+    total_infected_q25    = quantile(total_infected, 0.25, na.rm = TRUE),
+    total_infected_q75    = quantile(total_infected, 0.75, na.rm = TRUE),
+    
+    prevalence_median = median(overall_prevalence, na.rm = TRUE),
+    prevalence_q25    = quantile(overall_prevalence, 0.25, na.rm = TRUE),
+    prevalence_q75    = quantile(overall_prevalence, 0.75, na.rm = TRUE),
+    
+    hospitals_with_case_median = median(n_hospitals_with_case, na.rm = TRUE),
+    hospitals_with_case_q25    = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
+    hospitals_with_case_q75    = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
+    
+    .groups = "drop"
+  ) %>%
+  mutate(
+    seed_label = recode(as.character(seed_rule), !!!seed_labels)
+  )
+
+
+
+# -----------------------------------------------------------
+# 11. Save objects so you can reload later and skip rerunning sims
+#
+# Using saveRDS because it is reliable and does not require Rtools.
+# -----------------------------------------------------------
+# saveRDS(
+#   all_simulations,
+#   file = file.path(save_dir, "all_simulations.rds"),
+#   compress = "xz"
+# )
+# 
+# saveRDS(
+#   overall_results_by_sim,
+#   file = file.path(save_dir, "overall_results_by_sim.rds"),
+#   compress = "xz"
+# )
+# 
+# saveRDS(
+#   trajectory_summary_all_beta,
+#   file = file.path(save_dir, "trajectory_summary_all_beta.rds"),
+#   compress = "xz"
+# )
+# 
+# saveRDS(
+#   trajectory_summary_by_beta_regime,
+#   file = file.path(save_dir, "trajectory_summary_by_beta_regime.rds"),
+#   compress = "xz"
+# )
+
+
+save_dir <- here::here("Outputs", "saved_results")
+
+#all_simulations <- readRDS(file.path(save_dir, "all_simulations.rds"))
+overall_results_by_sim <- readRDS(file.path(save_dir, "overall_results_by_sim.rds"))
+trajectory_summary_all_beta <- readRDS(file.path(save_dir, "trajectory_summary_all_beta.rds"))
+trajectory_summary_by_beta_regime <- readRDS(file.path(save_dir, "trajectory_summary_by_beta_regime.rds"))
+```
+
+
+```{r pub style plotting}
+
+library(ggplot2)
+# -----------------------------------------------------------
+# 5. Publication-style plotting theme
+# -----------------------------------------------------------
+theme_pub_traj <- function() {
+  theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      strip.text = element_text(face = "bold", size = 11),
+      strip.background = element_rect(fill = "grey95", color = "grey80"),
+      axis.title = element_text(face = "bold"),
+      axis.text = element_text(color = "black"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 11),
+      legend.position = "none",
+      panel.border = element_rect(color = "grey60", fill = NA, linewidth = 0.4)
+    )
+}
+
+# -----------------------------------------------------------
+# 6. Plot function for ALL beta values combined
+# -----------------------------------------------------------
+plot_all_beta <- function(data, y_median, y_q25, y_q75, y_lab, title_text, percent = FALSE) {
+  p <- ggplot(
+    data,
+    aes(x = date, y = .data[[y_median]], group = seed_label)
+  ) +
+    geom_ribbon(
+      aes(
+        ymin = .data[[y_q25]],
+        ymax = .data[[y_q75]]
+      ),
+      alpha = 0.20
+    ) +
+    geom_line(linewidth = 0.9) +
+    facet_wrap(~ seed_label, scales = "free_y", ncol = 2) +
+    labs(
+      title = title_text,
+      subtitle = "Median and IQR across all simulation replicates pooled across beta regimes.",
+      x = "Simulation date",
+      y = y_lab
+    ) +
+    scale_x_date(date_breaks = "2 months", date_labels = "%b\n%Y") +
+    theme_pub_traj()
+  
+  if (percent) {
+    p <- p + scale_y_continuous(labels = percent_format(accuracy = 0.1))
+  }
+  
+  p
+}
+
+# -----------------------------------------------------------
+# 7. Plot function stratified by beta regime
+# -----------------------------------------------------------
+plot_by_beta_regime <- function(data, y_median, y_q25, y_q75, y_lab, title_text, percent = FALSE) {
+  p <- ggplot(
+    data,
+    aes(x = date, y = .data[[y_median]], group = seed_label)
+  ) +
+    geom_ribbon(
+      aes(
+        ymin = .data[[y_q25]],
+        ymax = .data[[y_q75]]
+      ),
+      alpha = 0.20
+    ) +
+    geom_line(linewidth = 0.8) +
+    facet_grid(beta_regime ~ seed_label, scales = "free_y") +
+    labs(
+      title = title_text,
+      subtitle = "Median and IQR across simulation replicates within each beta regime.",
+      x = "Simulation date",
+      y = y_lab
+    ) +
+    scale_x_date(date_breaks = "3 months", date_labels = "%b\n%Y") +
+    theme_pub_traj()
+  
+  if (percent) {
+    p <- p + scale_y_continuous(labels = percent_format(accuracy = 0.1))
+  }
+  
+  p
+}
+
+# -----------------------------------------------------------
+# 8. Create plots: ALL beta pooled
+# -----------------------------------------------------------
+plot_total_infected_all_beta <- plot_all_beta(
+  data = trajectory_summary_all_beta,
+  y_median = "total_infected_median",
+  y_q25 = "total_infected_q25",
+  y_q75 = "total_infected_q75",
+  y_lab = "Total infected patients",
+  title_text = "Total infections over time by seed type"
+)
+
+plot_prevalence_all_beta <- plot_all_beta(
+  data = trajectory_summary_all_beta,
+  y_median = "prevalence_median",
+  y_q25 = "prevalence_q25",
+  y_q75 = "prevalence_q75",
+  y_lab = "Overall prevalence",
+  title_text = "Overall prevalence over time by seed type",
+  percent = TRUE
+)
+
+plot_hospitals_with_case_all_beta <- plot_all_beta(
+  data = trajectory_summary_all_beta,
+  y_median = "hospitals_with_case_median",
+  y_q25 = "hospitals_with_case_q25",
+  y_q75 = "hospitals_with_case_q75",
+  y_lab = "Hospitals with at least one case",
+  title_text = "Hospitals with at least one case over time by seed type"
+)
+
+# -----------------------------------------------------------
+# 9. Create plots: stratified by low / mid / high beta regime
+# -----------------------------------------------------------
+plot_total_infected_by_beta <- plot_by_beta_regime(
+  data = trajectory_summary_by_beta_regime,
+  y_median = "total_infected_median",
+  y_q25 = "total_infected_q25",
+  y_q75 = "total_infected_q75",
+  y_lab = "Total infected patients",
+  title_text = "Total infections over time by seed type and beta regime"
+)
+
+plot_prevalence_by_beta <- plot_by_beta_regime(
+  data = trajectory_summary_by_beta_regime,
+  y_median = "prevalence_median",
+  y_q25 = "prevalence_q25",
+  y_q75 = "prevalence_q75",
+  y_lab = "Overall prevalence",
+  title_text = "Overall prevalence over time by seed type and beta regime",
+  percent = TRUE
+)
+
+plot_hospitals_with_case_by_beta <- plot_by_beta_regime(
+  data = trajectory_summary_by_beta_regime,
+  y_median = "hospitals_with_case_median",
+  y_q25 = "hospitals_with_case_q25",
+  y_q75 = "hospitals_with_case_q75",
+  y_lab = "Hospitals with at least one case",
+  title_text = "Hospitals with at least one case over time by seed type and beta regime"
+)
+
+# Print plots to view in the RStudio Plots pane
+plot_total_infected_all_beta
+plot_prevalence_all_beta
+plot_hospitals_with_case_all_beta
+
+plot_total_infected_by_beta
+plot_prevalence_by_beta
+plot_hospitals_with_case_by_beta
+
+# -----------------------------------------------------------
+# 10. Save plots to Outputs/saved_results
+# -----------------------------------------------------------
+ggsave(
+  filename = file.path(save_dir, "plot_total_infected_all_beta.png"),
+  plot = plot_total_infected_all_beta,
+  width = 11,
+  height = 8.5,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(save_dir, "plot_prevalence_all_beta.png"),
+  plot = plot_prevalence_all_beta,
+  width = 11,
+  height = 8.5,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(save_dir, "plot_hospitals_with_case_all_beta.png"),
+  plot = plot_hospitals_with_case_all_beta,
+  width = 11,
+  height = 8.5,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(save_dir, "plot_total_infected_by_beta_regime.png"),
+  plot = plot_total_infected_by_beta,
+  width = 16,
+  height = 8.5,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(save_dir, "plot_prevalence_by_beta_regime.png"),
+  plot = plot_prevalence_by_beta,
+  width = 16,
+  height = 8.5,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(save_dir, "plot_hospitals_with_case_by_beta_regime.png"),
+  plot = plot_hospitals_with_case_by_beta,
+  width = 16,
+  height = 8.5,
+  dpi = 300
+)
+
+# -----------------------------------------------------------
+# 12. Show saved file locations and sizes
+# -----------------------------------------------------------
+saved_files <- tibble(
+  file = c(
+    "all_simulations.rds",
+    "overall_results_by_sim.rds",
+    "trajectory_summary_all_beta.rds",
+    "trajectory_summary_by_beta_regime.rds",
+    "plot_total_infected_all_beta.png",
+    "plot_prevalence_all_beta.png",
+    "plot_hospitals_with_case_all_beta.png",
+    "plot_total_infected_by_beta_regime.png",
+    "plot_prevalence_by_beta_regime.png",
+    "plot_hospitals_with_case_by_beta_regime.png"
+  )
+) %>%
+  mutate(
+    path = file.path(save_dir, file),
+    size_mb = round(file.info(path)$size / 1024^2, 2)
+  )
+
+saved_files
+
+
+```
+
+```{r plot colorful}
+# ===========================================================
+# PRESENTATION-STYLE / POWERPOINT PLOTS
+# ===========================================================
+
+library(ggplot2)
+library(dplyr)
+library(scales)
+
+# -----------------------------------------------------------
+# Create an output folder for presentation-style figures
+# -----------------------------------------------------------
+ppt_plot_dir <- file.path(save_dir, "ppt_plots")
+
+if (!dir.exists(ppt_plot_dir)) {
+  dir.create(ppt_plot_dir, recursive = TRUE)
+}
+
+# -----------------------------------------------------------
+# Slide-friendly labels and colors
+# -----------------------------------------------------------
+seed_palette <- c(
+  "Highest in/out degree" = "#1b9e77",
+  "Highest betweenness" = "#d95f02",
+  "Largest beds/admissions" = "#7570b3",
+  "Largest incoming transfers" = "#e7298a",
+  "Largest outgoing transfers" = "#66a61e",
+  "Random hospital" = "#e6ab02"
+)
+
+beta_palette <- c(
+  "low" = "#4daf4a",
+  "mid" = "#377eb8",
+  "high" = "#e41a1c"
+)
+
+# -----------------------------------------------------------
+# PowerPoint theme
+#
+# Larger fonts, stronger contrast, cleaner look for slides
+# -----------------------------------------------------------
+theme_ppt_traj <- function() {
+  theme_minimal(base_size = 16) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(color = "grey85", linewidth = 0.4),
+      strip.text = element_text(face = "bold", size = 14, color = "black"),
+      strip.background = element_rect(fill = "grey92", color = "grey70"),
+      axis.title = element_text(face = "bold", size = 15),
+      axis.text = element_text(color = "black", size = 12),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(face = "bold", size = 20),
+      plot.subtitle = element_text(size = 14),
+      legend.title = element_text(face = "bold", size = 13),
+      legend.text = element_text(size = 12),
+      legend.position = "bottom",
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.border = element_rect(color = "grey60", fill = NA, linewidth = 0.6)
+    )
+}
+
+# -----------------------------------------------------------
+# Add clean display labels to the trajectory summary objects
+# -----------------------------------------------------------
+trajectory_summary_all_beta_ppt <- trajectory_summary_all_beta %>%
+  mutate(
+    seed_label = factor(
+      seed_label,
+      levels = c(
+        "Highest in/out degree",
+        "Highest betweenness",
+        "Largest beds/admissions",
+        "Largest incoming transfers",
+        "Largest outgoing transfers",
+        "Random hospital"
+      )
+    )
+  )
+
+trajectory_summary_by_beta_regime_ppt <- trajectory_summary_by_beta_regime %>%
+  mutate(
+    seed_label = factor(
+      seed_label,
+      levels = c(
+        "Highest in/out degree",
+        "Highest betweenness",
+        "Largest beds/admissions",
+        "Largest incoming transfers",
+        "Largest outgoing transfers",
+        "Random hospital"
+      )
+    ),
+    beta_regime = factor(beta_regime, levels = c("low", "mid", "high"))
+  )
+
+# -----------------------------------------------------------
+# Function: pooled across all beta values
+#
+# Colored by seed type, with one panel containing all lines
+# This is often better for PowerPoint than many small facets.
+# -----------------------------------------------------------
+plot_all_beta_ppt <- function(data, y_median, y_q25, y_q75, y_lab, title_text, percent = FALSE) {
+  
+  p <- ggplot(
+    data,
+    aes(
+      x = date,
+      y = .data[[y_median]],
+      color = seed_label,
+      fill = seed_label
+    )
+  ) +
+    geom_ribbon(
+      aes(
+        ymin = .data[[y_q25]],
+        ymax = .data[[y_q75]]
+      ),
+      alpha = 0.18,
+      color = NA
+    ) +
+    geom_line(linewidth = 1.2) +
+    scale_color_manual(values = seed_palette) +
+    scale_fill_manual(values = seed_palette) +
+    labs(
+      title = title_text,
+      subtitle = "Median trajectories with interquartile range ribbons across all beta regimes.",
+      x = "Simulation date",
+      y = y_lab,
+      color = "Seed type",
+      fill = "Seed type"
+    ) +
+    scale_x_date(date_breaks = "2 months", date_labels = "%b\n%Y") +
+    theme_ppt_traj()
+  
+  if (percent) {
+    p <- p + scale_y_continuous(labels = percent_format(accuracy = 0.1))
+  }
+  
+  p
+}
+
+# -----------------------------------------------------------
+# Function: stratified by beta regime
+#
+# Facet by beta regime, still color by seed type
+# -----------------------------------------------------------
+plot_by_beta_regime_ppt <- function(data, y_median, y_q25, y_q75, y_lab, title_text, percent = FALSE) {
+  
+  p <- ggplot(
+    data,
+    aes(
+      x = date,
+      y = .data[[y_median]],
+      color = seed_label,
+      fill = seed_label
+    )
+  ) +
+    geom_ribbon(
+      aes(
+        ymin = .data[[y_q25]],
+        ymax = .data[[y_q75]]
+      ),
+      alpha = 0.15,
+      color = NA
+    ) +
+    geom_line(linewidth = 1.1) +
+    facet_wrap(~ beta_regime, ncol = 1, scales = "free_y") +
+    scale_color_manual(values = seed_palette) +
+    scale_fill_manual(values = seed_palette) +
+    labs(
+      title = title_text,
+      subtitle = "Median trajectories with interquartile range ribbons, stratified by beta regime.",
+      x = "Simulation date",
+      y = y_lab,
+      color = "Seed type",
+      fill = "Seed type"
+    ) +
+    scale_x_date(date_breaks = "3 months", date_labels = "%b\n%Y") +
+    theme_ppt_traj()
+  
+  if (percent) {
+    p <- p + scale_y_continuous(labels = percent_format(accuracy = 0.1))
+  }
+  
+  p
+}
+
+# -----------------------------------------------------------
+# A second PowerPoint option:
+# facet by seed type for all beta pooled, but keep color accents
+# -----------------------------------------------------------
+plot_all_beta_faceted_ppt <- function(data, y_median, y_q25, y_q75, y_lab, title_text, percent = FALSE) {
+  
+  p <- ggplot(
+    data,
+    aes(
+      x = date,
+      y = .data[[y_median]],
+      color = seed_label,
+      fill = seed_label,
+      group = seed_label
+    )
+  ) +
+    geom_ribbon(
+      aes(
+        ymin = .data[[y_q25]],
+        ymax = .data[[y_q75]]
+      ),
+      alpha = 0.20,
+      color = NA
+    ) +
+    geom_line(linewidth = 1.2) +
+    facet_wrap(~ seed_label, scales = "free_y", ncol = 2) +
+    scale_color_manual(values = seed_palette) +
+    scale_fill_manual(values = seed_palette) +
+    labs(
+      title = title_text,
+      subtitle = "Median and interquartile range across all beta regimes.",
+      x = "Simulation date",
+      y = y_lab
+    ) +
+    scale_x_date(date_breaks = "2 months", date_labels = "%b\n%Y") +
+    theme_ppt_traj() +
+    theme(legend.position = "none")
+  
+  if (percent) {
+    p <- p + scale_y_continuous(labels = percent_format(accuracy = 0.1))
+  }
+  
+  p
+}
+
+# -----------------------------------------------------------
+# Create pooled-across-beta PowerPoint plots
+# -----------------------------------------------------------
+ppt_total_infected_all_beta <- plot_all_beta_ppt(
+  data = trajectory_summary_all_beta_ppt,
+  y_median = "total_infected_median",
+  y_q25 = "total_infected_q25",
+  y_q75 = "total_infected_q75",
+  y_lab = "Total infected patients",
+  title_text = "Total infections over time by seed type"
+)
+
+ppt_prevalence_all_beta <- plot_all_beta_ppt(
+  data = trajectory_summary_all_beta_ppt,
+  y_median = "prevalence_median",
+  y_q25 = "prevalence_q25",
+  y_q75 = "prevalence_q75",
+  y_lab = "Overall prevalence",
+  title_text = "Overall prevalence over time by seed type",
+  percent = TRUE
+)
+
+ppt_hospitals_with_case_all_beta <- plot_all_beta_ppt(
+  data = trajectory_summary_all_beta_ppt,
+  y_median = "hospitals_with_case_median",
+  y_q25 = "hospitals_with_case_q25",
+  y_q75 = "hospitals_with_case_q75",
+  y_lab = "Hospitals with at least one case",
+  title_text = "Hospitals with at least one case over time by seed type"
+)
+
+# -----------------------------------------------------------
+# Create faceted pooled-across-beta PowerPoint plots
+# -----------------------------------------------------------
+ppt_total_infected_all_beta_faceted <- plot_all_beta_faceted_ppt(
+  data = trajectory_summary_all_beta_ppt,
+  y_median = "total_infected_median",
+  y_q25 = "total_infected_q25",
+  y_q75 = "total_infected_q75",
+  y_lab = "Total infected patients",
+  title_text = "Total infections over time by seed type"
+)
+
+ppt_prevalence_all_beta_faceted <- plot_all_beta_faceted_ppt(
+  data = trajectory_summary_all_beta_ppt,
+  y_median = "prevalence_median",
+  y_q25 = "prevalence_q25",
+  y_q75 = "prevalence_q75",
+  y_lab = "Overall prevalence",
+  title_text = "Overall prevalence over time by seed type",
+  percent = TRUE
+)
+
+ppt_hospitals_with_case_all_beta_faceted <- plot_all_beta_faceted_ppt(
+  data = trajectory_summary_all_beta_ppt,
+  y_median = "hospitals_with_case_median",
+  y_q25 = "hospitals_with_case_q25",
+  y_q75 = "hospitals_with_case_q75",
+  y_lab = "Hospitals with at least one case",
+  title_text = "Hospitals with at least one case over time by seed type"
+)
+
+# -----------------------------------------------------------
+# Create beta-regime-stratified PowerPoint plots
+# -----------------------------------------------------------
+ppt_total_infected_by_beta <- plot_by_beta_regime_ppt(
+  data = trajectory_summary_by_beta_regime_ppt,
+  y_median = "total_infected_median",
+  y_q25 = "total_infected_q25",
+  y_q75 = "total_infected_q75",
+  y_lab = "Total infected patients",
+  title_text = "Total infections over time by seed type and beta regime"
+)
+
+ppt_prevalence_by_beta <- plot_by_beta_regime_ppt(
+  data = trajectory_summary_by_beta_regime_ppt,
+  y_median = "prevalence_median",
+  y_q25 = "prevalence_q25",
+  y_q75 = "prevalence_q75",
+  y_lab = "Overall prevalence",
+  title_text = "Overall prevalence over time by seed type and beta regime",
+  percent = TRUE
+)
+
+ppt_hospitals_with_case_by_beta <- plot_by_beta_regime_ppt(
+  data = trajectory_summary_by_beta_regime_ppt,
+  y_median = "hospitals_with_case_median",
+  y_q25 = "hospitals_with_case_q25",
+  y_q75 = "hospitals_with_case_q75",
+  y_lab = "Hospitals with at least one case",
+  title_text = "Hospitals with at least one case over time by seed type and beta regime"
+)
+
+# -----------------------------------------------------------
+# Print plots to the Plots pane
+# -----------------------------------------------------------
+ppt_total_infected_all_beta
+ppt_prevalence_all_beta
+ppt_hospitals_with_case_all_beta
+
+ppt_total_infected_all_beta_faceted
+ppt_prevalence_all_beta_faceted
+ppt_hospitals_with_case_all_beta_faceted
+
+ppt_total_infected_by_beta
+ppt_prevalence_by_beta
+ppt_hospitals_with_case_by_beta
+
+# -----------------------------------------------------------
+# Save PowerPoint-friendly plots
+# -----------------------------------------------------------
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_total_infected_all_beta.png"),
+  plot = ppt_total_infected_all_beta,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_prevalence_all_beta.png"),
+  plot = ppt_prevalence_all_beta,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_hospitals_with_case_all_beta.png"),
+  plot = ppt_hospitals_with_case_all_beta,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_total_infected_all_beta_faceted.png"),
+  plot = ppt_total_infected_all_beta_faceted,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_prevalence_all_beta_faceted.png"),
+  plot = ppt_prevalence_all_beta_faceted,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_hospitals_with_case_all_beta_faceted.png"),
+  plot = ppt_hospitals_with_case_all_beta_faceted,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_total_infected_by_beta_regime.png"),
+  plot = ppt_total_infected_by_beta,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_prevalence_by_beta_regime.png"),
+  plot = ppt_prevalence_by_beta,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(ppt_plot_dir, "ppt_hospitals_with_case_by_beta_regime.png"),
+  plot = ppt_hospitals_with_case_by_beta,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+
+# -----------------------------------------------------------
+# Save the PowerPoint plot objects so they can be reloaded later
+# -----------------------------------------------------------
+ppt_plot_objects <- list(
+  ppt_total_infected_all_beta = ppt_total_infected_all_beta,
+  ppt_prevalence_all_beta = ppt_prevalence_all_beta,
+  ppt_hospitals_with_case_all_beta = ppt_hospitals_with_case_all_beta,
+  ppt_total_infected_all_beta_faceted = ppt_total_infected_all_beta_faceted,
+  ppt_prevalence_all_beta_faceted = ppt_prevalence_all_beta_faceted,
+  ppt_hospitals_with_case_all_beta_faceted = ppt_hospitals_with_case_all_beta_faceted,
+  ppt_total_infected_by_beta = ppt_total_infected_by_beta,
+  ppt_prevalence_by_beta = ppt_prevalence_by_beta,
+  ppt_hospitals_with_case_by_beta = ppt_hospitals_with_case_by_beta
+)
+
+saveRDS(
+  ppt_plot_objects,
+  file = file.path(save_dir, "ppt_plot_objects.rds"),
+  compress = "xz"
+)
+
+```
 
 ### Overall epidemic trajectory
 
