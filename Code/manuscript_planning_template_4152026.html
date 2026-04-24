@@ -1642,13 +1642,19 @@ preserving total patient flow.</p></li>
 </div>
 <div id="data-input-and-preprocessing" class="section level2">
 <h2>Data input and preprocessing</h2>
-<p>Data cleaning codes were loaded in previous codes. Reviewing what the
-input datasets look like.</p>
 <div id="daily-admissions-data" class="section level3">
 <h3>Daily admissions data</h3>
-<p>Daily admissions data were extracted from the PMSI database and
-showing the number of admissions at each date in 2024 for all finess-geo
-level facilities.</p>
+<p>Data cleaning codes were loaded in previous codes. Reviewing what the
+input datasets look like.</p>
+<pre class="r"><code>adm_daily &lt;- daily_admission %&gt;%
+  clean_names() %&gt;%
+  mutate(
+    date = as.Date(date_entree),
+    daily_admissions = as.integer(no_admissions)
+  ) %&gt;%
+  select(finess_geo, date, daily_admissions)
+
+head(daily_admission)</code></pre>
 <pre><code>## # A tibble: 6 × 3
 ##   finess_geo no_admissions date_entree
 ##   &lt;chr&gt;              &lt;dbl&gt; &lt;chr&gt;      
@@ -1662,6 +1668,16 @@ level facilities.</p>
 <div id="transfer-data" class="section level3">
 <h3>Transfer data</h3>
 <p>Prepare the weekly or daily transfer dataset.</p>
+<pre class="r"><code>#Getting the date start as the last date
+transfers &lt;- weekly %&gt;%
+  clean_names() %&gt;%
+  mutate(
+    finess_geo_origin = as.character(finess_geo_origin),
+    finess_geo_target = as.character(finess_geo_target),
+    transfer_date = as.Date(window_end),
+    weight = as.numeric(weight)
+  ) 
+head(transfers)</code></pre>
 <pre><code>## # A tibble: 6 × 7
 ##   finess_geo_origin finess_geo_target weight window_start window_end
 ##   &lt;chr&gt;             &lt;chr&gt;              &lt;dbl&gt; &lt;date&gt;       &lt;date&gt;    
@@ -1677,6 +1693,7 @@ level facilities.</p>
 <h3>Hospital attributes</h3>
 <p>Construct the hospital universe and attach bed counts, coordinates,
 type, region, and other metadata.</p>
+<pre class="r"><code>head(coords_beds_active)</code></pre>
 <pre><code>## # A tibble: 6 × 12
 ##   finess_geo admit_yr finess    coordxet coordyet longitude latitude city       
 ##   &lt;chr&gt;         &lt;dbl&gt; &lt;chr&gt;        &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt; &lt;chr&gt;      
@@ -1693,12 +1710,9 @@ type, region, and other metadata.</p>
 <h2>Helper functions</h2>
 <div id="length-of-stay-or-other-stochastic-draws" class="section level3">
 <h3>Length-of-stay or other stochastic draws</h3>
-<p>This is currently a placeholder function in case we would need this
-for future models. However we have been supplied with the data that
-could generate a true LOS, shall it be needed. This function below
-defines helper functions for bounded random draws. I’m putting this as a
-placeholder but we actually don’t really need this since we’re using the
-assumption of full occupancy for all hospitals.</p>
+<p>Define helper functions for bounded random draws. I’m putting this as
+a placeholder but we actually don’t really need this since we’re using
+the assumption of full occupancy for all hospitals.</p>
 </div>
 <div id="state-initialization" class="section level3">
 <h3>State initialization</h3>
@@ -1711,34 +1725,219 @@ summarized downstream spread across simulations to estimate how seeding
 location influences dissemination.</p>
 <p>We’re going to choose multiple seeding hospital in the simulations,
 including 1. The largest hospital by Bed Size 2. The hospital with
-largest outgoing transfers and/or incoming transfers 3. The hospital
-with highest betweenness (bridges) 4. Random hospital (MCO or SSR) 5.
-Random SSR hospital — this is still pending getting the data from
-Srichand 6. Largest Long-term care hospital (SSR) — this is still
-pending getting the data from Srichand.</p>
-<p>The table below shows the type of seeding hospitals we use in each
-scenario, deduplicated if they are the same for more than one seeding
-rule.</p>
+largest outgoing transfers 3. The hospital with highest betweenness
+(bridges) 4. Random acute care hospitals 5. Random long-term care
+hospitals</p>
+<pre class="r"><code>library(igraph)
+library(purrr)
+
+#--------------------------------------------------
+# Build hospital-level metrics for seed selection
+#--------------------------------------------------
+
+# In-degree = number of distinct hospitals sending to this hospital
+incoming_tbl &lt;- transfers %&gt;%
+  distinct(finess_geo_origin, finess_geo_target) %&gt;%
+  group_by(finess_geo = finess_geo_target) %&gt;%
+  summarise(
+    in_degree = n(),
+    .groups = &quot;drop&quot;
+  )
+
+# Out-degree = number of distinct hospitals receiving from this hospital
+outgoing_tbl &lt;- transfers %&gt;%
+  distinct(finess_geo_origin, finess_geo_target) %&gt;%
+  group_by(finess_geo = finess_geo_origin) %&gt;%
+  summarise(
+    out_degree = n(),
+    .groups = &quot;drop&quot;
+  )
+
+# Hospital universe
+all_hospitals_tbl &lt;- bind_rows(
+  transfers %&gt;% transmute(finess_geo = finess_geo_origin),
+  transfers %&gt;% transmute(finess_geo = finess_geo_target)
+) %&gt;%
+  distinct()
+
+#--------------------------------------------------
+# Faster betweenness calculation
+#--------------------------------------------------
+# Collapse repeated edges first, and collapse by year
+transfers_yr = transfers %&gt;% 
+  group_by(finess_geo_origin, finess_geo_target) %&gt;% 
+  summarise(
+    weight = sum(weight)
+  )
+
+g_simple &lt;- graph_from_data_frame(transfers_yr, directed = TRUE)
+
+# Faster approximate betweenness using a path-length cutoff
+# Increase cutoff for more accuracy, decrease for more speed
+centrality_tbl &lt;- tibble(
+  finess_geo = V(g_simple)$name,
+  betweenness = estimate_betweenness(
+    g_simple,
+    vids = V(g_simple),
+    directed = TRUE,
+    cutoff = 5
+  )
+)
+
+# Combine metrics
+seed_metrics &lt;- all_hospitals_tbl %&gt;%
+  left_join(incoming_tbl, by = &quot;finess_geo&quot;) %&gt;%
+  left_join(outgoing_tbl, by = &quot;finess_geo&quot;) %&gt;%
+  left_join(centrality_tbl, by = &quot;finess_geo&quot;) %&gt;%
+  mutate(
+    in_degree = replace_na(in_degree, 0L),
+    out_degree = replace_na(out_degree, 0L),
+    betweenness = replace_na(betweenness, 0)
+  )
+#--------------------------------------------------
+# Select one seed hospital by in-degree, out-degree, and betweenness
+#--------------------------------------------------
+
+
+seed_panel &lt;- bind_rows(
+  seed_metrics %&gt;%
+    slice_max(order_by = in_degree, n = 1, with_ties = FALSE) %&gt;%
+    mutate(seed_rule = &quot;highest_in_degree&quot;),
+  
+  seed_metrics %&gt;%
+    slice_max(order_by = out_degree, n = 1, with_ties = FALSE) %&gt;%
+    mutate(seed_rule = &quot;highest_out_degree&quot;),
+  
+  seed_metrics %&gt;%
+    slice_max(order_by = betweenness, n = 1, with_ties = FALSE) %&gt;%
+    mutate(seed_rule = &quot;highest_betweenness&quot;),
+  
+  seed_metrics %&gt;%
+    slice_sample(n = 1) %&gt;%
+    mutate(seed_rule = &quot;random_hospital&quot;)
+) 
+
+#Seeding based on the largest number of beds
+
+largest_beds = coords_beds_active %&gt;% 
+  slice_max(order_by = no_beds, n=1, with_ties = FALSE) %&gt;% 
+  mutate(seed_rule = &quot;largest_beds&quot;) %&gt;% 
+  dplyr::select(seed_rule, finess_geo)
+
+# most admissions
+largest_admissions = coords_beds_active %&gt;% 
+  slice_max(order_by = no_beds, n=1, with_ties = FALSE) %&gt;% 
+  mutate(seed_rule = &quot;largest_admission&quot;) %&gt;% 
+  dplyr::select(seed_rule, finess_geo)
+
+# Largest outgoing transfers
+largest_outgoing_seed &lt;- transfers %&gt;%
+  group_by(finess_geo_origin) %&gt;%
+  summarise(
+    total_outgoing = sum(weight, na.rm = TRUE),
+    .groups = &quot;drop&quot;
+  ) %&gt;%
+  slice_max(order_by = total_outgoing, n = 1, with_ties = FALSE) %&gt;%
+  rename(finess_geo = finess_geo_origin) %&gt;%
+  mutate(seed_rule = &quot;largest_outgoing_transfers&quot;)
+
+largest_outgoing_seed</code></pre>
 <pre><code>## # A tibble: 1 × 3
 ##   finess_geo total_outgoing seed_rule                 
 ##   &lt;chr&gt;               &lt;dbl&gt; &lt;chr&gt;                     
 ## 1 590796975           91524 largest_outgoing_transfers</code></pre>
+<pre class="r"><code># Largest incoming transfers
+largest_incoming_seed &lt;- transfers %&gt;%
+  group_by(finess_geo_target) %&gt;%
+  summarise(
+    total_incoming = sum(weight, na.rm = TRUE),
+    .groups = &quot;drop&quot;
+  ) %&gt;%
+  slice_max(order_by = total_incoming, n = 1, with_ties = FALSE) %&gt;%
+  rename(finess_geo = finess_geo_target) %&gt;%
+  mutate(seed_rule = &quot;largest_incoming_transfers&quot;)
+
+largest_incoming_seed</code></pre>
 <pre><code>## # A tibble: 1 × 3
 ##   finess_geo total_incoming seed_rule                 
 ##   &lt;chr&gt;               &lt;dbl&gt; &lt;chr&gt;                     
 ## 1 540002698           62387 largest_incoming_transfers</code></pre>
+<pre class="r"><code>seed_panel_final = bind_rows(seed_panel, largest_beds, largest_admissions, 
+                       largest_incoming_seed, largest_outgoing_seed) %&gt;% 
+  dplyr::select(seed_rule, finess_geo) %&gt;% 
+  group_by(finess_geo) %&gt;%
+  summarise(
+    seed_rule = paste(seed_rule, collapse = &quot; + &quot;),
+    .groups = &quot;drop&quot;
+  ) %&gt;%
+  select(seed_rule, finess_geo)
+
+#Remove dups 
+seed_panel_final </code></pre>
 <pre><code>## # A tibble: 6 × 2
 ##   seed_rule                              finess_geo
 ##   &lt;chr&gt;                                  &lt;chr&gt;     
-## 1 random_hospital                        180000200 
-## 2 largest_beds + largest_admission       330781360 
-## 3 largest_incoming_transfers             540002698 
+## 1 largest_beds + largest_admission       330781360 
+## 2 largest_incoming_transfers             540002698 
+## 3 random_hospital                        560000465 
 ## 4 largest_outgoing_transfers             590796975 
 ## 5 highest_in_degree + highest_out_degree 750100125 
 ## 6 highest_betweenness                    800006124</code></pre>
+<pre class="r"><code># -----------------------------------------------------------
+# Build hospital universe from all origins and targets
+# then attach no_beds
+# -----------------------------------------------------------
+all_transfer_hospitals &lt;- bind_rows(
+  transfers %&gt;% transmute(finess_geo = finess_geo_origin),
+  transfers %&gt;% transmute(finess_geo = finess_geo_target)
+) %&gt;%
+  distinct()
+
+#  getting the list of hospitals involved
+# if there&#39;s no beds reported, we fill it with the mean number of beds
+hospitals &lt;- all_transfer_hospitals %&gt;%
+  left_join(
+    coords_beds_active %&gt;%
+      clean_names() %&gt;%
+      transmute(
+        finess_geo = as.character(finess_geo),
+        no_beds = readr::parse_number(as.character(no_beds))
+      ) %&gt;%
+      distinct(),
+    by = &quot;finess_geo&quot;
+  ) %&gt;%
+  mutate(
+    mean_beds = round(mean(no_beds, na.rm = TRUE)),
+    no_beds = if_else(is.na(no_beds), mean_beds, no_beds),
+    no_beds = as.integer(round(no_beds))
+  ) %&gt;%
+  select(finess_geo, no_beds)
+
+# -------------------------------------------------------------------
+# Create one occupied bed = one patient at time 0 as the initial infected
+# this is simulating a one-patient importation
+# Seed infection into one hospital
+# -------------------------------------------------------------------
+# -----------------------------------------------------------
+# Initialize hospital-level state
+# -----------------------------------------------------------
+initialize_hospital_state &lt;- function(hospitals,
+                                      seed_hospital,
+                                      n_seed_infected = 1) {
+  
+  hospitals %&gt;%
+    mutate(
+      n_infected = if_else(
+        finess_geo == seed_hospital,
+        pmin(n_seed_infected, no_beds),
+        0L
+      ),
+      prevalence = n_infected / no_beds
+    )
+}</code></pre>
 </div>
 <div id="daily-infected-transfer-calculation" class="section level3">
-<h3><strong>Daily infected transfer calculation</strong></h3>
+<h3>*<strong>Daily infected transfer calculation</strong></h3>
 <p>Create the function that converts origin prevalence and transfer
 weights into infected transfers.</p>
 <pre class="r"><code># TODO:
@@ -1823,14 +2022,7 @@ compute_daily_infected_transfers_fast &lt;- function(state, transfers_day) {
 <h2>Core simulation engine</h2>
 <div id="one-day-aggregate-simulation-step" class="section level3">
 <h3>One-day aggregate simulation step</h3>
-<p>Implement the daily update step.Some stochasticity is added to the
-functions, including - a binomial Distribution of whether intra-hospital
-transmission occurs in each day - a binomial distribution of whether
-inter-hospital transmission through transfers occurs for transfers. we
-introduce randomness in whether the transferred patients are the
-infected transfers. Later we will also add a reduced probability of
-transfers are reduced for infected patients. - A binomial distribution
-of whether</p>
+<p>Implement the daily update step.</p>
 <pre class="r"><code># TODO:
 # - define simulate_one_day_agg()
 

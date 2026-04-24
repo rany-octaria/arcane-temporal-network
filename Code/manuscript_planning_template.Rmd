@@ -23,96 +23,19 @@ knitr::opts_chunk$set(
 ```
 
 
-#### **Intervention definitions**
-  
-   organize intervention scenarios into three main classes.
-  
-  - **Improved IPC within hospitals** :  evaluate interventions that reduce within-hospital transmission risk.
-  
-  - **Admission screening and quarantine/isolation**: evaluate interventions that reduce pathogen importation at admission or transfer-in.
-  
-  - **Network-modifying transfer interventions**:  evaluate interventions that alter patient-transfer patterns across the healthcare network while preserving key system constraints.
 
-####  **Scenario parameterization**
-  
-   define each scenario according to the dimensions below.
-  
-  - **Unit of intervention**:  specify whether the intervention acts at the level of hospital, admission, transfer route, source hospital, or destination hospital.
-  
-  - **Mechanism of action**:  specify whether the intervention changes within-hospital transmission, admission or transfer-related importation, or network connectivity and transfer probabilities.
-  
-  - **Intervention intensity**:  define the strength of each intervention, such as percent reduction in transmission, proportion of admissions screened, screening effectiveness, or proportion of transfers rerouted.
-  
-  - **Operational constraints**:  determine whether scenarios preserve total number of patients, total number of transfers, hospital type matching, and geographic or capacity constraints.
+## Project Information 
 
-- **Targeting algorithms**: compare multiple targeting strategies across intervention classes.
-  
-  - **Universal targeting**:  apply the intervention to all hospitals, admissions, or eligible transfers.
-  
-  - **Hospital-type targeting**:  target selected facility categories, such as tertiary or referral hospitals.
-  
-  - **Network-informed targeting**:  target hospitals based on their role in the network, including measures such as degree or weighted degree, betweenness centrality, transfer volume, and bridge or hub status.
-  
-  - **Epidemiologic targeting**:  target hospitals based on epidemiologic burden, such as baseline prevalence, importation burden, and acquisition burden.
 
-#### **Seeding event analyses**
-  
-  This section will define how observed epidemiologic data and surveillance data are used to identify and interpret seeding events.
-  
-  - **Definition and identification of seeding events**:     analyze epidemiologic and surveillance data to identify AMR seeding events at the regional or country level for different antibiotic-resistant bacteria.
-  
-  - **Source attribution of seeding events**:   disentangle the relative contribution of environmental sources, human population sources, importation from foreign countries, and transmission through the healthcare network.
-  
-  - **Identification of potential infector hospitals**:  identify candidate infector hospitals associated with newly colonized hospitals by considering temporal delay between reported cases, network distance, and number of transferred patients.
-  
-  - **Comparative role of importation versus within-network spread**:  assess whether observed seeding events are more consistent with external introduction into the region or country or with propagation through the domestic healthcare network.
+This section of the Arcane project represents Task 4.2 and 4.3 of the ARCANE proposal.
 
-#### **Simulation of seeding events and downstream spread**
-  
-  This section will describe how seeding events are imposed in the dynamic model and how their downstream consequences are evaluated.
-  
-  - **Simulation framework**:  use the network-based dynamic models developed in Task 3 to simulate outbreaks initiated by seeding events.
-  
-  - **Seed-location characteristics**: vary the characteristics of the healthcare institution where the pathogen is first seeded, including institution type, network position, and geographic area.
-  
-  - **Pathogen-specific characteristics**: perform these analyses for different antibiotic-resistant bacteria and vary bacterial characteristics such as carriage duration and transmissibility.
-  
-  - **Network-specific comparison across settings**: conduct the analyses in France and Germany to determine how pathogen characteristics and network structure influence the effect of seeding events on subsequent spread.
+IN Task 4.2 **Analysing epidemic data to identify AMR seeding events**, we propose an approach to disentangle the relative role in AMR hospital spread of seeding events (e.g., from the environment, the general human population or via importations from foreign countries) vs. between-hospital transmission over the healthcare network. This will be done by analysing observed surveillance data at a regional or country level on specific ARB. 
 
-#### **Statistical analysis of simulation outputs**
-  
-  This section will describe how simulation results are summarized and modeled.
-  
-  - **Evaluation of spread patterns**: analyze simulation outputs to quantify how characteristics of the seeding event and seeded institution shape downstream epidemiologic patterns.
-  
-  - **Explanatory factors**: evaluate the impact of institution type, network position, geographic location, pathogen carriage duration, pathogen transmissibility, and network structure.
-  
-  - **Outcome metrics**: summarize spread using outcomes such as regional prevalence, cumulative acquisitions, cumulative importations, number of affected hospitals, and speed and extent of dissemination across the network.
+For each newly “colonised” hospital (that is, a hospital in which a case of colonisation with the ARB has been reported for the first time), we will attempt to identify a potential “infector” hospital over the healthcare network, as we have done previously. A probability of occurrence of a seeding event may then be computed, based on the availability and characteristics of this infector hospital: the delay between reported cases in the infector hospital and the newly colonised hospital, their distance over the network and the number of patients transferred between them. This approach will be applied to epidemic data from both France and Germany over
+recent years.
 
-#### **Risk mapping**
-  
-  This section will translate simulation outputs into spatially interpretable institution-level risk summaries.
-  
-  - **Institution-level risk maps**: generate risk maps quantifying the level of risk associated with a seeding event in a given institution.
-  
-  - **Cross-pathogen and cross-country comparison**   compare these risk maps across antibiotic-resistant bacteria and across France and Germany to identify settings in which seeding events are most likely to drive broader dissemination.
-
-#### **Scenario families to pre-specify**
-  
-  This section will define the major intervention families that should be created before large simulation runs begin.
-  
-  - **IPC scenarios**
-    
-     evaluate IPC in all hospitals, IPC in selected hospital types, IPC in the most central hospitals, and IPC in hospitals with high baseline burden.
-  
-  - **Screening scenarios**
-    
-     evaluate screening at all admissions, screening at transfer-in admissions only, screening in selected hospital types, screening targeted to patients transferred from selected source hospitals, and screening targeted to high-risk hospitals.
-  
-  - **Network modification scenarios**
-    
-     evaluate rerouting transfers away from highly central hospitals, rerouting transfers from high-prevalence hospitals, rerouting selected high-volume edges, and rerouting within the same hospital type while preserving total patient flow.
-
+In Task 4.3 **Exploring how seeding events impact AMR spread**, we will also explore how the nature of seeding events may impact the spreading dynamics of pathogens over healthcare networks. To that aim, we will perform numerical simulations starting from a single seeding event using the networkbased dynamic models developed in Task 3 and vary the characteristics of the healthcare institution where the pathogen is seeded, namely: its type (e.g. acute care or long-term care), its place in the network (based on temporal-topological measures, e.g. degree, closeness or betweenness[24]), its geographical area (e.g. in a large or medium-sized city, in a rural or urban area,...). We will then investigate, using multivariate statistical analyses performed on simulated data, the impact of these characteristics on different epidemic patterns, including the risk of a local outbreak becoming global,
+the duration before this happens, or the total number (or portion) of contaminated healthcare institutions over a given period of time. Based on these analyses, we will generate risk maps underlining the level of risk associated with a seeding event in a given healthcare institution. This will be performed for different ARBs and for both France and Germany, in order to determine how bacterial characteristics (mostly, carriage duration and transmissibility) and network characteristics impact our conclusions.
 
 
 ```{r libraries, include=FALSE}
@@ -123,18 +46,26 @@ library(furrr)
 library(future)
 library(dplyr)
 library(purrr)
+library(igraph)
+library(deSolve)
 
+#Run the previous code to clean the network data
 source(here("Code", "data-cleaning-network-model.R"))
 ```
 
 ## Data input and preprocessing
 
+Data cleaning codes were loaded in previous codes. We first review the structures of the input datasets. 
+
+The transfer and admission data is sourced from the The PMSI (Programme de médicalisation des systèmes d’information). PMSI is France’s national hospital discharge and activity database. It is a standardized medico-administrative system used to describe hospital care, support financing, and enable epidemiologic and health-services research. In practice, hospitals transmit structured records on stays, diagnoses, procedures, and selected administrative variables using field-specific collections coordinated by ATIH (Agence technique de l’information sur l’hospitalisation). The PMSI covers the main hospital sectors, notably **MCO (médecine, chirurgie, obstétrique), SSR/SMR (soins de suite et de réadaptation, now soins médicaux et de réadaptation), HAD (hospitalisation à domicile), and psychiatry**, where data are collected through the RIM-P (recueil d’informations médicalisé en psychiatrie). In psychiatry, for example, the national collection relies on standardized summaries for inpatient sequences and, for some facilities, outpatient activity as well.
+
+The partner researchers at the École des hautes études en santé publique has aggregated and transformed PMSI database to produce and the admission, facility characteristics, and transfer data shown below.
+
 ### Daily admissions data
 
-Data cleaning codes were loaded in previous codes. Reviewing what the input datasets look like.
+Daily admissions data shown at each date in 2024 for all finess-geo level facilities. Each finess_geo ID represent one healthcare facility. Many finess_geo IDs may share one finess id if they belong to the same organization. 
 
-```{r view-admissions}
-
+```{r view-admissions, echo = FALSE}
 adm_daily <- daily_admission %>%
   clean_names() %>%
   mutate(
@@ -150,8 +81,7 @@ head(daily_admission)
 
 Prepare the weekly or daily transfer dataset.
 
-```{r clean-transfers}
-
+```{r clean-transfers, echo= FALSE}
 #Getting the date start as the last date
 transfers <- weekly %>%
   clean_names() %>%
@@ -161,6 +91,7 @@ transfers <- weekly %>%
     transfer_date = as.Date(window_end),
     weight = as.numeric(weight)
   ) 
+
 head(transfers)
 ```
 
@@ -168,7 +99,8 @@ head(transfers)
 
 Construct the hospital universe and attach bed counts, coordinates, type, region, and other metadata.
 
-```{r hospital-universe}
+```{r hospital-universe, echo=FALSE, warning = FALSE}
+
 head(coords_beds_active)
 ```
 
@@ -176,7 +108,7 @@ head(coords_beds_active)
 
 ### Length-of-stay or other stochastic draws
 
-Define helper functions for bounded random draws. I'm putting this as a placeholder but we actually don't really need this since we're using the assumption of full occupancy for all hospitals. 
+This is currently a placeholder function in case we would need this for future models. However we have been supplied with the data that could generate a true LOS, shall it be needed. This function below defines helper functions for bounded random draws. I'm putting this as a placeholder but we actually don't really need this since we're using the assumption of full occupancy for all hospitals. 
 
 ```{r helper-los, include = FALSE}
  # note: im putting this as a pla
@@ -188,9 +120,6 @@ sample_los <- function(n, mean_los = 7, sd_los = 2, min_los = 1, max_los = 15) {
   x <- pmax(min_los, pmin(max_los, x))
   as.integer(x)
 }
-
-
-#We now have LOS data from Srichand, we can calculate the LOS here. (Placeholder)
 ```
 
 ### State initialization
@@ -200,16 +129,15 @@ We selected candidate seed hospitals to represent distinct epidemiologically pla
 
 We're going to choose multiple seeding hospital in the simulations, including
 1. The largest hospital by Bed Size
-2. The hospital with largest outgoing transfers
+2. The hospital with largest outgoing transfers and/or incoming transfers
 3. The hospital with highest betweenness (bridges)
-4. Random acute care hospitals
-5. Random long-term care hospitals 
+4. Random hospital (MCO or SSR)
+5. Random SSR hospital  --- this is still pending getting the data from Srichand
+6. Largest Long-term care hospital (SSR) --- this is still pending getting the data from Srichand.
 
-```{r seed-options}
+The table below shows the type of seeding hospitals we use in each scenario, deduplicated if they are the same for more than one seeding rule.
 
-library(igraph)
-library(purrr)
-
+```{r seed-options, echo = FALSE, warning = FALSE}
 #--------------------------------------------------
 # Build hospital-level metrics for seed selection
 #--------------------------------------------------
@@ -350,7 +278,7 @@ seed_panel_final
 ```
 
 
-```{r initialize-state}
+```{r initialize-state, echo = FALSE, warning = FALSE}
 
 # -----------------------------------------------------------
 # Build hospital universe from all origins and targets
@@ -406,7 +334,7 @@ initialize_hospital_state <- function(hospitals,
 }
 ```
 
-### ***Daily infected transfer calculation**
+### **Daily infected transfer calculation**
 
 Create the function that converts origin prevalence and transfer weights into infected transfers.
 
@@ -493,7 +421,10 @@ compute_daily_infected_transfers_fast <- function(state, transfers_day) {
 
 ### One-day aggregate simulation step
 
-Implement the daily update step.
+Implement the daily update step.Some stochasticity is added to the functions, including 
+- a binomial Distribution of whether intra-hospital transmission occurs in each day
+- a binomial distribution of whether inter-hospital transmission through transfers occurs for transfers. we introduce randomness in whether the transferred patients are the infected transfers. Later we will also add a reduced probability of transfers are reduced for infected patients.
+- A binomial distribution of whether 
 
 ```{r simulate-one-day}
 # TODO:
@@ -720,7 +651,7 @@ Specify the default values for transmission, clearance, importation, and seed as
 
 # Fixed epidemiologic parameters
 
-gamma_clear_val   <- 1 / 387  #Keep it a very long time for now, vary the beta 
+gamma_clear_val   <- 1 / 387  #Keep it a very long time for now, vary the beta for now 
 admission_prev_val <- 0
 n_seed_infected_val <- 1
 
@@ -735,6 +666,11 @@ sim_end_date   <- "2024-12-31"
 ```
 
 
+#### Setting Beta Variability
+
+Because the model is currently running on a pathogen agnostic example, we want to
+try incorporating different levels of force of transmissions into the model that would cover different types of pathogen 
+
 ```{r setting beta-variability}
 # -----------------------------------------------------------
 # Create one transmissibility draw per sim_id
@@ -747,47 +683,83 @@ sim_end_date   <- "2024-12-31"
 # beta_within is then computed as:
 #   beta_within = R0 * gamma_clear
 # -----------------------------------------------------------
+# beta_lookup <- tibble(
+#   beta_regime = rep(c("low", "mid", "high"), each = n_sim_per_regime),
+#   sim_id_within_regime = rep(seq_len(n_sim_per_regime), times = 3)
+# ) %>%
+#   mutate(
+#     sim_id = row_number(),
+#     
+#     # reproducible RNG seed for the R0 draw
+#     beta_seed = 50000 + sim_id,
+#     
+#     # draw one R0 value within each regime
+#     R0_iter = pmap_dbl(
+#       list(beta_regime, beta_seed),
+#       function(beta_regime, beta_seed) {
+#         set.seed(beta_seed)
+#         
+#         if (beta_regime == "low") {
+#           runif(1, min = 0.20, max = 0.95)
+#         } else if (beta_regime == "mid") {
+#           runif(1, min = 0.95, max = 1.2)
+#         } else if (beta_regime == "high") {
+#           runif(1, min = 1.20, max = 2)
+#         } else {
+#           stop("Unknown beta_regime")
+#         }
+#       }
+#     ),
+#     
+#     # convert R0 to beta using the SIS threshold approximation
+#     beta_within_iter = R0_iter * gamma_clear_val
+#   )
+# 
+# beta_lookup %>%
+#   group_by(beta_regime) %>%
+#   summarise(
+#     min_R0 = min(R0_iter),
+#     max_R0 = max(R0_iter),
+#     min_beta = min(beta_within_iter),
+#     max_beta = max(beta_within_iter),
+#     .groups = "drop"
+#   )''
+
+# ANOTHER APPROACH TO BETA SAMPLING
+
+
+
+# -----------------------------------------------------------
+# Literature-informed beta regimes (per day)
+# Shared across seed types within each sim_id
+# -----------------------------------------------------------
+n_sim_per_regime <- 50
+
 beta_lookup <- tibble(
   beta_regime = rep(c("low", "mid", "high"), each = n_sim_per_regime),
   sim_id_within_regime = rep(seq_len(n_sim_per_regime), times = 3)
 ) %>%
   mutate(
     sim_id = row_number(),
-    
-    # reproducible RNG seed for the R0 draw
-    beta_seed = 50000 + sim_id,
-    
-    # draw one R0 value within each regime
-    R0_iter = pmap_dbl(
+    beta_seed = 70000 + sim_id,
+    beta_within_iter = pmap_dbl(
       list(beta_regime, beta_seed),
       function(beta_regime, beta_seed) {
         set.seed(beta_seed)
         
         if (beta_regime == "low") {
-          runif(1, min = 0.20, max = 0.95)
+          runif(1, min = 0.036, max = 0.048)  #Reflecting the beta in Prabasaj's paper for LTACH
         } else if (beta_regime == "mid") {
-          runif(1, min = 0.95, max = 1.2)
+          runif(1, min = 0.071, max = 0.125) #Beta from Prabasaj Paul's paper for STACH
         } else if (beta_regime == "high") {
-          runif(1, min = 1.20, max = 2)
+          runif(1, min = 0.125, max = 0.25)  #Hypothetical High Beta
         } else {
           stop("Unknown beta_regime")
         }
       }
-    ),
-    
-    # convert R0 to beta using the SIS threshold approximation
-    beta_within_iter = R0_iter * gamma_clear_val
+    )
   )
 
-beta_lookup %>%
-  group_by(beta_regime) %>%
-  summarise(
-    min_R0 = min(R0_iter),
-    max_R0 = max(R0_iter),
-    min_beta = min(beta_within_iter),
-    max_beta = max(beta_within_iter),
-    .groups = "drop"
-  )
 
 ```
 
@@ -808,17 +780,19 @@ beta_lookup %>%
 #
 # This makes comparisons across seed types fairer.
 # -----------------------------------------------------------
+
+# -----------------------------------------------------------
+# Build simulation grid
+# Same beta for all seed types within a given sim_id
+# -----------------------------------------------------------
 simulation_grid <- seed_panel_final %>%
   rename(seed_hospital = finess_geo) %>%
   tidyr::crossing(sim_id = beta_lookup$sim_id) %>%
   left_join(beta_lookup, by = "sim_id") %>%
   mutate(
-    # simulation seed for the stochastic epidemic process
     sim_seed = 1000 + sim_id
   ) %>%
   mutate(
-    # for the random hospital scenario, draw a different hospital
-    # for each replicate; otherwise keep the fixed seed hospital
     seed_hospital_iter = pmap_chr(
       list(seed_rule, seed_hospital, sim_seed),
       function(seed_rule, seed_hospital, sim_seed) {
@@ -832,29 +806,20 @@ simulation_grid <- seed_panel_final %>%
     )
   )
 
-# inspect the grid before running simulations
+# inspect
 simulation_grid %>%
-  select(
-    seed_rule,
-    seed_hospital,
-    seed_hospital_iter,
-    sim_id,
-    beta_regime,
-    R0_iter,
-    beta_within_iter,
-    sim_seed
-  ) %>%
+  select(seed_rule, sim_id, beta_regime, beta_within_iter, sim_seed, seed_hospital_iter) %>%
   arrange(beta_regime, sim_id, seed_rule) %>%
   print(n = 30)
 
 ```
 
 
-### Run the baseline model
+#### Baseline Model Run
 
 Execute the baseline simulation.
 
-```{r baseline-run}
+```{r baseline-run, include = FALSE}
 library(dplyr)
 library(furrr)
 library(future)
@@ -882,45 +847,45 @@ run_one_sim <- function(seed_hospital, sim_seed, beta_within_iter) {
 # -----------------------------------------------------------
 # Parallel plan + progress bar
 # -----------------------------------------------------------
-plan(multisession, workers = parallelly::availableCores() - 1)
-handlers("txtprogressbar")
-
-start_time <- Sys.time()
-
-with_progress({
-  
-  p <- progressor(steps = nrow(simulation_grid))
-  
-  all_simulations <- simulation_grid %>%
-    mutate(
-      sim = future_pmap(
-        list(seed_hospital_iter, sim_seed, beta_within_iter),
-        function(seed_hospital, sim_seed, beta_within_iter) {
-          
-          res <- run_one_sim(
-            seed_hospital = seed_hospital,
-            sim_seed = sim_seed,
-            beta_within_iter = beta_within_iter
-          )
-          
-          p(sprintf("completed sim_id seed=%s", sim_seed))
-          
-          res
-        },
-        .options = furrr_options(seed = TRUE)
-      )
-    )
-})
-
-end_time <- Sys.time()
-
-cat(
-  "\nTotal elapsed time:",
-  round(as.numeric(end_time - start_time, units = "secs"), 2),
-  "seconds\n"
-)
-
-plan(sequential)
+# plan(multisession, workers = 4)
+# handlers("txtprogressbar")
+# 
+# start_time <- Sys.time()
+# 
+# with_progress({
+#   
+#   p <- progressor(steps = nrow(simulation_grid))
+#   
+#   all_simulations <- simulation_grid %>%
+#     mutate(
+#       sim = future_pmap(
+#         list(seed_hospital_iter, sim_seed, beta_within_iter),
+#         function(seed_hospital, sim_seed, beta_within_iter) {
+#           
+#           res <- run_one_sim(
+#             seed_hospital = seed_hospital,
+#             sim_seed = sim_seed,
+#             beta_within_iter = beta_within_iter
+#           )
+#           
+#           p(sprintf("completed sim_id seed=%s", sim_seed))
+#           
+#           res
+#         },
+#         .options = furrr_options(seed = TRUE)
+#       )
+#     )
+# })
+# 
+# end_time <- Sys.time()
+# 
+# cat(
+#   "\nTotal elapsed time:",
+#   round(as.numeric(end_time - start_time, units = "mins"), 2),
+#   "minutes\n"
+# )
+# 
+# plan(sequential)
 ```
 
 ## Baseline output summaries and plots
@@ -928,7 +893,7 @@ plan(sequential)
 In this section, i'm going to just summarize the big file outputs, later to comment out
 the big chunnk with the simulations and then load pre-saved rds files for plotting
 
-```{r summarize outputs}
+```{r summarize outputs, include = FALSE}
 library(dplyr)
 library(tidyr)
 library(purrr)
@@ -952,49 +917,49 @@ if (!dir.exists(save_dir)) {
 # This is the main plotting-ready dataset.
 # Each row = one date within one simulation replicate.
 # -----------------------------------------------------------
-overall_results_by_sim <- all_simulations %>%
-  transmute(
-    seed_rule,
-    seed_hospital,
-    seed_hospital_iter,
-    sim_id,
-    sim_seed,
-    beta_regime,
-    R0_iter,
-    beta_within_iter,
-    overall_results = map(sim, "overall_results")
-  ) %>%
-  unnest(overall_results)
-
-# quick check
-glimpse(overall_results_by_sim)
+# overall_results_by_sim <- all_simulations %>%
+#   transmute(
+#     seed_rule,
+#     seed_hospital,
+#     seed_hospital_iter,
+#     sim_id,
+#     sim_seed,
+#     beta_regime,
+#    # R0_iter,
+#     beta_within_iter,
+#     overall_results = map(sim, "overall_results")
+#   ) %>%
+#   unnest(overall_results)
+# 
+# # quick check
+# head(overall_results_by_sim)
 
 # -----------------------------------------------------------
 # 2. Define clean seed ordering and labels for plots
 # -----------------------------------------------------------
-seed_levels <- c(
-  "highest_in_degree + highest_out_degree",
-  "highest_betweenness",
-  "largest_beds + largest_admission",
-  "largest_incoming_transfers",
-  "largest_outgoing_transfers",
-  "random_hospital"
-)
+# seed_levels <- c(
+#   "highest_in_degree + highest_out_degree",
+#   "highest_betweenness",
+#   "largest_beds + largest_admission",
+#   "largest_incoming_transfers",
+#   "largest_outgoing_transfers",
+#   "random_hospital"
+# )
+# 
+# seed_labels <- c(
+#   "highest_in_degree + highest_out_degree" = "Highest in/out degree",
+#   "highest_betweenness" = "Highest betweenness",
+#   "largest_beds + largest_admission" = "Largest beds/admissions",
+#   "largest_incoming_transfers" = "Largest incoming transfers",
+#   "largest_outgoing_transfers" = "Largest outgoing transfers",
+#   "random_hospital" = "Random hospital"
+# )
 
-seed_labels <- c(
-  "highest_in_degree + highest_out_degree" = "Highest in/out degree",
-  "highest_betweenness" = "Highest betweenness",
-  "largest_beds + largest_admission" = "Largest beds/admissions",
-  "largest_incoming_transfers" = "Largest incoming transfers",
-  "largest_outgoing_transfers" = "Largest outgoing transfers",
-  "random_hospital" = "Random hospital"
-)
-
-overall_results_by_sim <- overall_results_by_sim %>%
-  mutate(
-    seed_rule = factor(seed_rule, levels = seed_levels),
-    beta_regime = factor(beta_regime, levels = c("low", "mid", "high"))
-  )
+# overall_results_by_sim <- overall_results_by_sim %>%
+#   mutate(
+#     seed_rule = factor(seed_rule, levels = seed_levels),
+#     beta_regime = factor(beta_regime, levels = c("low", "mid", "high"))
+#   )
 
 # -----------------------------------------------------------
 # 3. Summarize trajectories across ALL beta values combined
@@ -1004,28 +969,28 @@ overall_results_by_sim <- overall_results_by_sim %>%
 # - 25th percentile
 # - 75th percentile
 # -----------------------------------------------------------
-trajectory_summary_all_beta <- overall_results_by_sim %>%
-  group_by(seed_rule, date) %>%
-  summarise(
-    n_runs = n(),
-    
-    total_infected_median = median(total_infected, na.rm = TRUE),
-    total_infected_q25    = quantile(total_infected, 0.25, na.rm = TRUE),
-    total_infected_q75    = quantile(total_infected, 0.75, na.rm = TRUE),
-    
-    prevalence_median = median(overall_prevalence, na.rm = TRUE),
-    prevalence_q25    = quantile(overall_prevalence, 0.25, na.rm = TRUE),
-    prevalence_q75    = quantile(overall_prevalence, 0.75, na.rm = TRUE),
-    
-    hospitals_with_case_median = median(n_hospitals_with_case, na.rm = TRUE),
-    hospitals_with_case_q25    = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
-    hospitals_with_case_q75    = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
-    
-    .groups = "drop"
-  ) %>%
-  mutate(
-    seed_label = recode(as.character(seed_rule), !!!seed_labels)
-  )
+# trajectory_summary_all_beta <- overall_results_by_sim %>%
+#   group_by(seed_rule, date) %>%
+#   summarise(
+#     n_runs = n(),
+#     
+#     total_infected_median = median(total_infected, na.rm = TRUE),
+#     total_infected_q25    = quantile(total_infected, 0.25, na.rm = TRUE),
+#     total_infected_q75    = quantile(total_infected, 0.75, na.rm = TRUE),
+#     
+#     prevalence_median = median(overall_prevalence, na.rm = TRUE),
+#     prevalence_q25    = quantile(overall_prevalence, 0.25, na.rm = TRUE),
+#     prevalence_q75    = quantile(overall_prevalence, 0.75, na.rm = TRUE),
+#     
+#     hospitals_with_case_median = median(n_hospitals_with_case, na.rm = TRUE),
+#     hospitals_with_case_q25    = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
+#     hospitals_with_case_q75    = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
+#     
+#     .groups = "drop"
+#   ) %>%
+#   mutate(
+#     seed_label = recode(as.character(seed_rule), !!!seed_labels)
+#   )
 
 # -----------------------------------------------------------
 # 4. Summarize trajectories within each beta regime
@@ -1035,73 +1000,239 @@ trajectory_summary_all_beta <- overall_results_by_sim %>%
 # - 25th percentile
 # - 75th percentile
 # -----------------------------------------------------------
-trajectory_summary_by_beta_regime <- overall_results_by_sim %>%
-  group_by(beta_regime, seed_rule, date) %>%
-  summarise(
-    n_runs = n(),
-    
-    total_infected_median = median(total_infected, na.rm = TRUE),
-    total_infected_q25    = quantile(total_infected, 0.25, na.rm = TRUE),
-    total_infected_q75    = quantile(total_infected, 0.75, na.rm = TRUE),
-    
-    prevalence_median = median(overall_prevalence, na.rm = TRUE),
-    prevalence_q25    = quantile(overall_prevalence, 0.25, na.rm = TRUE),
-    prevalence_q75    = quantile(overall_prevalence, 0.75, na.rm = TRUE),
-    
-    hospitals_with_case_median = median(n_hospitals_with_case, na.rm = TRUE),
-    hospitals_with_case_q25    = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
-    hospitals_with_case_q75    = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
-    
-    .groups = "drop"
-  ) %>%
-  mutate(
-    seed_label = recode(as.character(seed_rule), !!!seed_labels)
-  )
+# trajectory_summary_by_beta_regime <- overall_results_by_sim %>%
+#   group_by(beta_regime, seed_rule, date) %>%
+#   summarise(
+#     n_runs = n(),
+#     
+#     total_infected_median = median(total_infected, na.rm = TRUE),
+#     total_infected_q25    = quantile(total_infected, 0.25, na.rm = TRUE),
+#     total_infected_q75    = quantile(total_infected, 0.75, na.rm = TRUE),
+#     
+#     prevalence_median = median(overall_prevalence, na.rm = TRUE),
+#     prevalence_q25    = quantile(overall_prevalence, 0.25, na.rm = TRUE),
+#     prevalence_q75    = quantile(overall_prevalence, 0.75, na.rm = TRUE),
+#     
+#     hospitals_with_case_median = median(n_hospitals_with_case, na.rm = TRUE),
+#     hospitals_with_case_q25    = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
+#     hospitals_with_case_q75    = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
+#     
+#     .groups = "drop"
+#   ) %>%
+#   mutate(
+#     seed_label = recode(as.character(seed_rule), !!!seed_labels)
+#   )
+```
 
 
+```{r saving objects for future, echo=FALSE}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(here)
+library(readr)
+
+# ===========================================================
+# SAVE CURRENT SIMULATION RUN AS A SELF-CONTAINED BUNDLE
+# ===========================================================
 
 # -----------------------------------------------------------
-# 11. Save objects so you can reload later and skip rerunning sims
+# 1. Create a date stamp in ddmmyy format
+# -----------------------------------------------------------
+run_date_stamp <- format(Sys.Date(), "%d%m%y")
+
+# -----------------------------------------------------------
+# 2. Give this simulation run a short scenario name
+# Edit this manually for each new run
+# -----------------------------------------------------------
+scenario_name <- paste0("beta_varying_", as.character(n_sim_per_regime), "reps")
+
+# -----------------------------------------------------------
+# 3. Create a folder for this run
+# Example:
+# Outputs/saved_results/150426_beta_varying_100rep
+# -----------------------------------------------------------
+run_id <- paste(run_date_stamp, scenario_name, sep = "_")
+
+run_dir <- here::here("Outputs", "saved_results", run_id)
+run_dir
+if (!dir.exists(run_dir)) {
+  dir.create(run_dir, recursive = TRUE)
+}
+
+# -----------------------------------------------------------
+# 4. Build a metadata table describing what was done
 #
-# Using saveRDS because it is reliable and does not require Rtools.
+# Add or edit fields here whenever you run a new scenario.
+# This is the most important part for future reproducibility.
+# -----------------------------------------------------------
+# run_metadata <- tibble(
+#   run_id = run_id,
+#   run_date = as.character(Sys.Date()),
+#   scenario_name = scenario_name,
+#   scenario_description = paste(
+#     "Aggregate SIS hospital-transfer simulation.",
+#     "Beta varied by simulation replicate and shared across seed types within sim_id.",
+#     "100 repetitions per beta regime.",
+#     "Seed comparison across multiple seed rules.",
+#     "Stochastic infected transfers, stochastic clearance, and stochastic within-hospital transmission."
+#   ),
+#   sim_start_date = sim_start_date,
+#   sim_end_date = sim_end_date,
+#   n_seed_infected = n_seed_infected_val,
+#   gamma_clear = gamma_clear_val,
+#   admission_prev = admission_prev_val,
+#   n_sim_total = nrow(simulation_grid),
+#   n_unique_sim_id = dplyr::n_distinct(simulation_grid$sim_id),
+#   n_seed_types = dplyr::n_distinct(simulation_grid$seed_rule),
+#   beta_regimes = paste(sort(unique(simulation_grid$beta_regime)), collapse = ", "),
+#   beta_min = min(simulation_grid$beta_within_iter, na.rm = TRUE),
+#   beta_max = max(simulation_grid$beta_within_iter, na.rm = TRUE),
+#   beta_mean = mean(simulation_grid$beta_within_iter, na.rm = TRUE),
+#   notes = "Saved after simulation completed; includes simulation grid, raw results, and trajectory summaries."
+# )
+
+# -----------------------------------------------------------
+# 5. Optional: summarise beta ranges by regime
+# This is useful for checking exactly what beta values were used.
+# -----------------------------------------------------------
+# beta_regime_summary <- simulation_grid %>%
+#   group_by(beta_regime) %>%
+#   summarise(
+#     n_runs = n(),
+#     beta_min = min(beta_within_iter, na.rm = TRUE),
+#     beta_q25 = quantile(beta_within_iter, 0.25, na.rm = TRUE),
+#     beta_median = median(beta_within_iter, na.rm = TRUE),
+#     beta_q75 = quantile(beta_within_iter, 0.75, na.rm = TRUE),
+#     beta_max = max(beta_within_iter, na.rm = TRUE),
+#     .groups = "drop"
+#   )
+
+# -----------------------------------------------------------
+# 6. Build one self-contained R object containing everything
+# needed to reload the run later
+# -----------------------------------------------------------
+# run_bundle <- list(
+#   metadata = run_metadata,
+#   beta_regime_summary = beta_regime_summary,
+#   simulation_grid = simulation_grid,
+#   seed_panel_final = seed_panel_final,
+#   #all_simulations = all_simulations,
+#   overall_results_by_sim = overall_results_by_sim,
+#   trajectory_summary_all_beta = trajectory_summary_all_beta,
+#   trajectory_summary_by_beta_regime = trajectory_summary_by_beta_regime,
+#   session_info = utils::sessionInfo()
+# )
+
+# -----------------------------------------------------------
+# 7. Save the self-contained bundle
+# -----------------------------------------------------------
+# saveRDS(
+#   run_bundle,
+#   file = file.path(run_dir, "run_bundle.rds"),
+#   compress = "xz"
+# )
+
+# -----------------------------------------------------------
+# 8. Save important individual objects separately
+# This makes later loading faster and more convenient.
 # -----------------------------------------------------------
 # saveRDS(
 #   all_simulations,
-#   file = file.path(save_dir, "all_simulations.rds"),
+#   file = file.path(run_dir, "all_simulations.rds"),
 #   compress = "xz"
 # )
-# 
+
 # saveRDS(
 #   overall_results_by_sim,
-#   file = file.path(save_dir, "overall_results_by_sim.rds"),
+#   file = file.path(run_dir, "overall_results_by_sim.rds"),
 #   compress = "xz"
 # )
 # 
 # saveRDS(
 #   trajectory_summary_all_beta,
-#   file = file.path(save_dir, "trajectory_summary_all_beta.rds"),
+#   file = file.path(run_dir, "trajectory_summary_all_beta.rds"),
 #   compress = "xz"
 # )
 # 
 # saveRDS(
 #   trajectory_summary_by_beta_regime,
-#   file = file.path(save_dir, "trajectory_summary_by_beta_regime.rds"),
+#   file = file.path(run_dir, "trajectory_summary_by_beta_regime.rds"),
+#   compress = "xz"
+# )
+# 
+# saveRDS(
+#   simulation_grid,
+#   file = file.path(run_dir, "simulation_grid.rds"),
 #   compress = "xz"
 # )
 
+# -----------------------------------------------------------
+# 9. Save metadata tables as csv for quick human-readable review
+# -----------------------------------------------------------
+# readr::write_csv(
+#   run_metadata,
+#   file = file.path(run_dir, "run_metadata.csv")
+# )
+# 
+# readr::write_csv(
+#   beta_regime_summary,
+#   file = file.path(run_dir, "beta_regime_summary.csv")
+# )
 
-save_dir <- here::here("Outputs", "saved_results")
+# -----------------------------------------------------------
+# 10. Print a quick summary of what was saved
+# -----------------------------------------------------------
+# saved_files <- tibble(
+#   file = c(
+#     "run_bundle.rds",
+#     #"all_simulations.rds",
+#     "overall_results_by_sim.rds",
+#     "trajectory_summary_all_beta.rds",
+#     "trajectory_summary_by_beta_regime.rds",
+#     "simulation_grid.rds",
+#     "run_metadata.csv",
+#     "beta_regime_summary.csv"
+#   )
+# ) %>%
+#   mutate(
+#     path = file.path(run_dir, file),
+#     size_mb = round(file.info(path)$size / 1024^2, 2)
+#   )
+# 
+# print(run_metadata)
+# print(beta_regime_summary)
+# print(saved_files)
+# 
 
-#all_simulations <- readRDS(file.path(save_dir, "all_simulations.rds"))
-overall_results_by_sim <- readRDS(file.path(save_dir, "overall_results_by_sim.rds"))
-trajectory_summary_all_beta <- readRDS(file.path(save_dir, "trajectory_summary_all_beta.rds"))
-trajectory_summary_by_beta_regime <- readRDS(file.path(save_dir, "trajectory_summary_by_beta_regime.rds"))
+# 
+# run_dir <- here::here("Outputs", "saved_results", "150426_beta_varying_100rep")
+# 
+# run_bundle <- readRDS(file.path(run_dir, "run_bundle.rds"))
+# 
+# # pull objects back into the workspace if needed
+# run_metadata <- run_bundle$metadata
+# simulation_grid <- run_bundle$simulation_grid
+# all_simulations <- run_bundle$all_simulations
+# overall_results_by_sim <- run_bundle$overall_results_by_sim
+# trajectory_summary_all_beta <- run_bundle$trajectory_summary_all_beta
+# trajectory_summary_by_beta_regime <- run_bundle$trajectory_summary_by_beta_regime
+
+
 ```
 
 
-```{r pub style plotting}
+#### Plotting Results as Manuscript Type Graphs (Black and White)
 
+```{r pub style plotting, echo = FALSE, warning = FALSE}
+
+
+
+overall_results_by_sim <- readRDS(file.path(run_dir, "overall_results_by_sim.rds"))
+trajectory_summary_all_beta <- readRDS(file.path(run_dir, "trajectory_summary_all_beta.rds"))
+trajectory_summary_by_beta_regime <- readRDS(file.path(run_dir, "trajectory_summary_by_beta_regime.rds"))
 library(ggplot2)
+
 # -----------------------------------------------------------
 # 5. Publication-style plotting theme
 # -----------------------------------------------------------
@@ -1310,34 +1441,13 @@ ggsave(
   dpi = 300
 )
 
-# -----------------------------------------------------------
-# 12. Show saved file locations and sizes
-# -----------------------------------------------------------
-saved_files <- tibble(
-  file = c(
-    "all_simulations.rds",
-    "overall_results_by_sim.rds",
-    "trajectory_summary_all_beta.rds",
-    "trajectory_summary_by_beta_regime.rds",
-    "plot_total_infected_all_beta.png",
-    "plot_prevalence_all_beta.png",
-    "plot_hospitals_with_case_all_beta.png",
-    "plot_total_infected_by_beta_regime.png",
-    "plot_prevalence_by_beta_regime.png",
-    "plot_hospitals_with_case_by_beta_regime.png"
-  )
-) %>%
-  mutate(
-    path = file.path(save_dir, file),
-    size_mb = round(file.info(path)$size / 1024^2, 2)
-  )
-
-saved_files
 
 
 ```
 
-```{r plot colorful}
+#### Plotting the Results in Colorful Graphs
+
+```{r plot colorful, echo = FALSE, warning = FALSE}
 # ===========================================================
 # PRESENTATION-STYLE / POWERPOINT PLOTS
 # ===========================================================
@@ -2009,10 +2119,94 @@ Build a master table of all scenarios to run.
 # - risk maps
 ```
 
-## Notes for next coding steps
 
-- First populate the early data and simulation sections using the current simulation script.
-- Then implement reusable intervention functions in the intervention engine section.
-- Next add targeting logic so interventions can be applied consistently across scenario families.
-- After that, build the observed-data seeding analysis.
-- Finally, run multi-scenario simulation experiments and summarize the outputs in the statistical analysis and mapping sections.
+
+#### **Intervention definitions**
+  
+   organize intervention scenarios into three main classes.
+  
+  - **Improved IPC within hospitals** :  evaluate interventions that reduce within-hospital transmission risk.
+  
+  - **Admission screening and quarantine/isolation**: evaluate interventions that reduce pathogen importation at admission or transfer-in.
+  
+  - **Network-modifying transfer interventions**:  evaluate interventions that alter patient-transfer patterns across the healthcare network while preserving key system constraints.
+
+####  **Scenario parameterization**
+  
+   define each scenario according to the dimensions below.
+  
+  - **Unit of intervention**:  specify whether the intervention acts at the level of hospital, admission, transfer route, source hospital, or destination hospital.
+  
+  - **Mechanism of action**:  specify whether the intervention changes within-hospital transmission, admission or transfer-related importation, or network connectivity and transfer probabilities.
+  
+  - **Intervention intensity**:  define the strength of each intervention, such as percent reduction in transmission, proportion of admissions screened, screening effectiveness, or proportion of transfers rerouted.
+  
+  - **Operational constraints**:  determine whether scenarios preserve total number of patients, total number of transfers, hospital type matching, and geographic or capacity constraints.
+
+- **Targeting algorithms**: compare multiple targeting strategies across intervention classes.
+  
+  - **Universal targeting**:  apply the intervention to all hospitals, admissions, or eligible transfers.
+  
+  - **Hospital-type targeting**:  target selected facility categories, such as tertiary or referral hospitals.
+  
+  - **Network-informed targeting**:  target hospitals based on their role in the network, including measures such as degree or weighted degree, betweenness centrality, transfer volume, and bridge or hub status.
+  
+  - **Epidemiologic targeting**:  target hospitals based on epidemiologic burden, such as baseline prevalence, importation burden, and acquisition burden.
+
+#### **Seeding event analyses**
+  
+  This section will define how observed epidemiologic data and surveillance data are used to identify and interpret seeding events.
+  
+  - **Definition and identification of seeding events**:     analyze epidemiologic and surveillance data to identify AMR seeding events at the regional or country level for different antibiotic-resistant bacteria.
+  
+  - **Source attribution of seeding events**:   disentangle the relative contribution of environmental sources, human population sources, importation from foreign countries, and transmission through the healthcare network.
+  
+  - **Identification of potential infector hospitals**:  identify candidate infector hospitals associated with newly colonized hospitals by considering temporal delay between reported cases, network distance, and number of transferred patients.
+  
+  - **Comparative role of importation versus within-network spread**:  assess whether observed seeding events are more consistent with external introduction into the region or country or with propagation through the domestic healthcare network.
+
+#### **Simulation of seeding events and downstream spread**
+  
+  This section will describe how seeding events are imposed in the dynamic model and how their downstream consequences are evaluated.
+  
+  - **Simulation framework**:  use the network-based dynamic models developed in Task 3 to simulate outbreaks initiated by seeding events.
+  
+  - **Seed-location characteristics**: vary the characteristics of the healthcare institution where the pathogen is first seeded, including institution type, network position, and geographic area.
+  
+  - **Pathogen-specific characteristics**: perform these analyses for different antibiotic-resistant bacteria and vary bacterial characteristics such as carriage duration and transmissibility.
+  
+  - **Network-specific comparison across settings**: conduct the analyses in France and Germany to determine how pathogen characteristics and network structure influence the effect of seeding events on subsequent spread.
+
+#### **Statistical analysis of simulation outputs**
+  
+  This section will describe how simulation results are summarized and modeled.
+  
+  - **Evaluation of spread patterns**: analyze simulation outputs to quantify how characteristics of the seeding event and seeded institution shape downstream epidemiologic patterns.
+  
+  - **Explanatory factors**: evaluate the impact of institution type, network position, geographic location, pathogen carriage duration, pathogen transmissibility, and network structure.
+  
+  - **Outcome metrics**: summarize spread using outcomes such as regional prevalence, cumulative acquisitions, cumulative importations, number of affected hospitals, and speed and extent of dissemination across the network.
+
+#### **Risk mapping**
+  
+  This section will translate simulation outputs into spatially interpretable institution-level risk summaries.
+  
+  - **Institution-level risk maps**: generate risk maps quantifying the level of risk associated with a seeding event in a given institution.
+  
+  - **Cross-pathogen and cross-country comparison**   compare these risk maps across antibiotic-resistant bacteria and across France and Germany to identify settings in which seeding events are most likely to drive broader dissemination.
+
+#### **Scenario families to pre-specify**
+  
+  This section will define the major intervention families that should be created before large simulation runs begin.
+  
+  - **IPC scenarios**
+    
+     evaluate IPC in all hospitals, IPC in selected hospital types, IPC in the most central hospitals, and IPC in hospitals with high baseline burden.
+  
+  - **Screening scenarios**
+    
+     evaluate screening at all admissions, screening at transfer-in admissions only, screening in selected hospital types, screening targeted to patients transferred from selected source hospitals, and screening targeted to high-risk hospitals.
+  
+  - **Network modification scenarios**
+    
+     evaluate rerouting transfers away from highly central hospitals, rerouting transfers from high-prevalence hospitals, rerouting selected high-volume edges, and rerouting within the same hospital type while preserving total patient flow.

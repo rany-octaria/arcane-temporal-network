@@ -1,0 +1,1220 @@
+---
+title: "Dynamic Network Modeling Manuscript Planning Template"
+author: "Rany Octaria"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: false
+  pdf_document:
+    toc: true
+    number_sections: false
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+
+
+## Project Information 
+
+
+This section of the Arcane project represents Task 4.2 and 4.3 of the ARCANE proposal.
+
+IN Task 4.2 **Analysing epidemic data to identify AMR seeding events**, we propose an approach to disentangle the relative role in AMR hospital spread of seeding events (e.g., from the environment, the general human population or via importations from foreign countries) vs. between-hospital transmission over the healthcare network. This will be done by analysing observed surveillance data at a regional or country level on specific ARB. 
+
+For each newly “colonised” hospital (that is, a hospital in which a case of colonisation with the ARB has been reported for the first time), we will attempt to identify a potential “infector” hospital over the healthcare network, as we have done previously. A probability of occurrence of a seeding event may then be computed, based on the availability and characteristics of this infector hospital: the delay between reported cases in the infector hospital and the newly colonised hospital, their distance over the network and the number of patients transferred between them. This approach will be applied to epidemic data from both France and Germany over
+recent years.
+
+In Task 4.3 **Exploring how seeding events impact AMR spread**, we will also explore how the nature of seeding events may impact the spreading dynamics of pathogens over healthcare networks. To that aim, we will perform numerical simulations starting from a single seeding event using the networkbased dynamic models developed in Task 3 and vary the characteristics of the healthcare institution where the pathogen is seeded, namely: its type (e.g. acute care or long-term care), its place in the network (based on temporal-topological measures, e.g. degree, closeness or betweenness[24]), its geographical area (e.g. in a large or medium-sized city, in a rural or urban area,...). We will then investigate, using multivariate statistical analyses performed on simulated data, the impact of these characteristics on different epidemic patterns, including the risk of a local outbreak becoming global,
+the duration before this happens, or the total number (or portion) of contaminated healthcare institutions over a given period of time. Based on these analyses, we will generate risk maps underlining the level of risk associated with a seeding event in a given healthcare institution. This will be performed for different ARBs and for both France and Germany, in order to determine how bacterial characteristics (mostly, carriage duration and transmissibility) and network characteristics impact our conclusions.
+
+
+```{r libraries, include=FALSE}
+library(here)
+library(tidyverse)
+library(tictoc)
+library(furrr)
+library(future)
+library(dplyr)
+library(purrr)
+library(igraph)
+library(deSolve)
+
+#Run the previous code to clean the network data
+source(here("Code", "data-cleaning-network-model.R"))
+```
+
+## Data input and preprocessing
+
+Data cleaning codes were loaded in previous codes. We first review the structures of the input datasets. 
+
+The transfer and admission data is sourced from the The PMSI (Programme de médicalisation des systèmes d’information). PMSI is France’s national hospital discharge and activity database. It is a standardized medico-administrative system used to describe hospital care, support financing, and enable epidemiologic and health-services research. In practice, hospitals transmit structured records on stays, diagnoses, procedures, and selected administrative variables using field-specific collections coordinated by ATIH (Agence technique de l’information sur l’hospitalisation). The PMSI covers the main hospital sectors, notably **MCO (médecine, chirurgie, obstétrique), SSR/SMR (soins de suite et de réadaptation, now soins médicaux et de réadaptation), HAD (hospitalisation à domicile), and psychiatry**, where data are collected through the RIM-P (recueil d’informations médicalisé en psychiatrie). In psychiatry, for example, the national collection relies on standardized summaries for inpatient sequences and, for some facilities, outpatient activity as well.
+
+The partner researchers at the École des hautes études en santé publique has aggregated and transformed PMSI database to produce and the admission, facility characteristics, and transfer data shown below.
+
+### Daily admissions data
+
+Daily admissions data shown at each date in 2024 for all finess-geo level facilities. Each finess_geo ID represent one healthcare facility. Many finess_geo IDs may share one finess id if they belong to the same organization. 
+
+```{r view-admissions, echo = FALSE}
+adm_daily <- daily_admission %>%
+  clean_names() %>%
+  mutate(
+    date = as.Date(date_entree),
+    daily_admissions = as.integer(no_admissions)
+  ) %>%
+  select(finess_geo, date, daily_admissions)
+
+head(daily_admission)
+```
+
+### Transfer data
+
+Prepare the weekly or daily transfer dataset.
+
+```{r clean-transfers, echo= FALSE}
+#Getting the date start as the last date
+transfers <- weekly %>%
+  clean_names() %>%
+  mutate(
+    finess_geo_origin = as.character(finess_geo_origin),
+    finess_geo_target = as.character(finess_geo_target),
+    transfer_date = as.Date(window_end),
+    weight = as.numeric(weight)
+  ) 
+
+head(transfers)
+```
+
+### Hospital attributes
+
+Construct the hospital universe and attach bed counts, coordinates, type, region, and other metadata.
+
+```{r hospital-universe, echo=FALSE, warning = FALSE}
+
+head(coords_beds_active)
+```
+
+## Helper functions
+
+### Length-of-stay or other stochastic draws
+
+This is currently a placeholder function in case we would need this for future models. However we have been supplied with the data that could generate a true LOS, shall it be needed. This function below defines helper functions for bounded random draws. I'm putting this as a placeholder but we actually don't really need this since we're using the assumption of full occupancy for all hospitals. 
+
+```{r helper-los, include = FALSE}
+ # note: im putting this as a pla
+# --------------------------------------------------------
+# Draw integer LOS from a bounded normal-like distribution
+# --------------------------------------------------------
+sample_los <- function(n, mean_los = 7, sd_los = 2, min_los = 1, max_los = 15) {
+  x <- round(rnorm(n, mean = mean_los, sd = sd_los))
+  x <- pmax(min_los, pmin(max_los, x))
+  as.integer(x)
+}
+```
+
+### State initialization
+
+
+We selected candidate seed hospitals to represent distinct epidemiologically plausible seeding scenarios, including hospitals with high transfer volume, high network centrality, large bed capacity, selected facility types, and randomly chosen hospitals. We then simulated pathogen introduction separately in each seed hospital and summarized downstream spread across simulations to estimate how seeding location influences dissemination. 
+
+We're going to choose multiple seeding hospital in the simulations, including
+1. The largest hospital by Bed Size
+2. The hospital with largest outgoing transfers and/or incoming transfers
+3. The hospital with highest betweenness (bridges)
+4. Random hospital (MCO or SSR)
+5. Random SSR hospital  --- this is still pending getting the data from Srichand
+6. Largest Long-term care hospital (SSR) --- this is still pending getting the data from Srichand.
+
+The table below shows the type of seeding hospitals we use in each scenario, deduplicated if they are the same for more than one seeding rule.
+
+```{r seed-options, echo = FALSE, warning = FALSE}
+#--------------------------------------------------
+# Build hospital-level metrics for seed selection
+#--------------------------------------------------
+
+# In-degree = number of distinct hospitals sending to this hospital
+incoming_tbl <- transfers %>%
+  distinct(finess_geo_origin, finess_geo_target) %>%
+  group_by(finess_geo = finess_geo_target) %>%
+  summarise(
+    in_degree = n(),
+    .groups = "drop"
+  )
+
+# Out-degree = number of distinct hospitals receiving from this hospital
+outgoing_tbl <- transfers %>%
+  distinct(finess_geo_origin, finess_geo_target) %>%
+  group_by(finess_geo = finess_geo_origin) %>%
+  summarise(
+    out_degree = n(),
+    .groups = "drop"
+  )
+
+# Hospital universe
+all_hospitals_tbl <- bind_rows(
+  transfers %>% transmute(finess_geo = finess_geo_origin),
+  transfers %>% transmute(finess_geo = finess_geo_target)
+) %>%
+  distinct()
+
+#--------------------------------------------------
+# Faster betweenness calculation
+#--------------------------------------------------
+# Collapse repeated edges first, and collapse by year
+transfers_yr = transfers %>% 
+  group_by(finess_geo_origin, finess_geo_target) %>% 
+  summarise(
+    weight = sum(weight)
+  )
+
+g_simple <- graph_from_data_frame(transfers_yr, directed = TRUE)
+
+# Faster approximate betweenness using a path-length cutoff
+# Increase cutoff for more accuracy, decrease for more speed
+centrality_tbl <- tibble(
+  finess_geo = V(g_simple)$name,
+  betweenness = estimate_betweenness(
+    g_simple,
+    vids = V(g_simple),
+    directed = TRUE,
+    cutoff = 5
+  )
+)
+
+# Combine metrics
+seed_metrics <- all_hospitals_tbl %>%
+  left_join(incoming_tbl, by = "finess_geo") %>%
+  left_join(outgoing_tbl, by = "finess_geo") %>%
+  left_join(centrality_tbl, by = "finess_geo") %>%
+  mutate(
+    in_degree = replace_na(in_degree, 0L),
+    out_degree = replace_na(out_degree, 0L),
+    betweenness = replace_na(betweenness, 0)
+  )
+#--------------------------------------------------
+# Select one seed hospital by in-degree, out-degree, and betweenness
+#--------------------------------------------------
+seed_panel <- bind_rows(
+  seed_metrics %>%
+    slice_max(order_by = in_degree, n = 1, with_ties = FALSE) %>%
+    mutate(seed_rule = "highest_in_degree"),
+  
+  seed_metrics %>%
+    slice_max(order_by = out_degree, n = 1, with_ties = FALSE) %>%
+    mutate(seed_rule = "highest_out_degree"),
+  
+  seed_metrics %>%
+    slice_max(order_by = betweenness, n = 1, with_ties = FALSE) %>%
+    mutate(seed_rule = "highest_betweenness"),
+  
+  seed_metrics %>%
+    slice_sample(n = 1) %>%
+    mutate(seed_rule = "random_hospital")
+) 
+
+#Seeding based on the largest number of beds
+
+largest_beds = coords_beds_active %>% 
+  slice_max(order_by = no_beds, n=1, with_ties = FALSE) %>% 
+  mutate(seed_rule = "largest_beds") %>% 
+  dplyr::select(seed_rule, finess_geo)
+
+# most admissions
+largest_admissions = coords_beds_active %>% 
+  slice_max(order_by = no_beds, n=1, with_ties = FALSE) %>% 
+  mutate(seed_rule = "largest_admission") %>% 
+  dplyr::select(seed_rule, finess_geo)
+
+# Largest outgoing transfers
+largest_outgoing_seed <- transfers %>%
+  group_by(finess_geo_origin) %>%
+  summarise(
+    total_outgoing = sum(weight, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  slice_max(order_by = total_outgoing, n = 1, with_ties = FALSE) %>%
+  rename(finess_geo = finess_geo_origin) %>%
+  mutate(seed_rule = "largest_outgoing_transfers")
+
+largest_outgoing_seed
+
+# Largest incoming transfers
+largest_incoming_seed <- transfers %>%
+  group_by(finess_geo_target) %>%
+  summarise(
+    total_incoming = sum(weight, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  slice_max(order_by = total_incoming, n = 1, with_ties = FALSE) %>%
+  rename(finess_geo = finess_geo_target) %>%
+  mutate(seed_rule = "largest_incoming_transfers")
+
+largest_incoming_seed
+
+seed_panel_final = bind_rows(seed_panel, largest_beds, largest_admissions, 
+                       largest_incoming_seed, largest_outgoing_seed) %>% 
+  dplyr::select(seed_rule, finess_geo) %>% 
+  group_by(finess_geo) %>%
+  summarise(
+    seed_rule = paste(seed_rule, collapse = " + "),
+    .groups = "drop"
+  ) %>%
+  select(seed_rule, finess_geo)
+
+#Remove dups 
+seed_panel_final 
+```
+
+
+```{r initialize-state, echo = FALSE, warning = FALSE}
+
+# -----------------------------------------------------------
+# Build hospital universe from all origins and targets
+# then attach no_beds
+# -----------------------------------------------------------
+all_transfer_hospitals <- bind_rows(
+  transfers %>% transmute(finess_geo = finess_geo_origin),
+  transfers %>% transmute(finess_geo = finess_geo_target)
+) %>%
+  distinct()
+
+#  getting the list of hospitals involved
+# if there's no beds reported, we fill it with the mean number of beds
+hospitals <- all_transfer_hospitals %>%
+  left_join(
+    coords_beds_active %>%
+      clean_names() %>%
+      transmute(
+        finess_geo = as.character(finess_geo),
+        no_beds = readr::parse_number(as.character(no_beds))
+      ) %>%
+      distinct(),
+    by = "finess_geo"
+  ) %>%
+  mutate(
+    mean_beds = round(mean(no_beds, na.rm = TRUE)),
+    no_beds = if_else(is.na(no_beds), mean_beds, no_beds),
+    no_beds = as.integer(round(no_beds))
+  ) %>%
+  select(finess_geo, no_beds)
+
+# -------------------------------------------------------------------
+# Create one occupied bed = one patient at time 0 as the initial infected
+# this is simulating a one-patient importation
+# Seed infection into one hospital
+# -------------------------------------------------------------------
+# -----------------------------------------------------------
+# Initialize hospital-level state
+# -----------------------------------------------------------
+initialize_hospital_state <- function(hospitals,
+                                      seed_hospital,
+                                      n_seed_infected = 1) {
+  
+  hospitals %>%
+    mutate(
+      n_infected = if_else(
+        finess_geo == seed_hospital,
+        pmin(n_seed_infected, no_beds),
+        0L
+      ),
+      prevalence = n_infected / no_beds
+    )
+}
+```
+
+### **Daily infected transfer calculation**
+
+Create the function that converts origin prevalence and transfer weights into infected transfers.
+
+```{r infected-transfers}
+# TODO:
+# Define compute_daily_infected_transfers()
+# -----------------------------------------------------------
+# For one day of transfers:
+# infected transferred on each edge = round(weight * prevalence_origin)
+#
+# Then cap total infected outgoing from each hospital so we do not
+# transfer out more infected than currently exist in that hospital.
+# -----------------------------------------------------------
+compute_daily_infected_transfers_fast <- function(state, transfers_day) {
+  
+  if (nrow(transfers_day) == 0) {
+    return(tibble(
+      finess_geo_origin = character(),
+      finess_geo_target = character(),
+      weight = integer(),
+      prev_origin = numeric(),
+      infected_transfer = integer()
+    ))
+  }
+  
+  # fast lookup from state to transfer origins
+  idx_origin <- match(transfers_day$finess_geo_origin, state$finess_geo)
+  
+  prev_origin <- state$prevalence[idx_origin]
+  n_infected_origin <- state$n_infected[idx_origin]
+  
+  prev_origin[is.na(prev_origin)] <- 0
+  n_infected_origin[is.na(n_infected_origin)] <- 0L
+  
+  # stochastic infected transfers on each edge
+  infected_transfer_raw <- rbinom(
+    n = nrow(transfers_day),
+    size = transfers_day$weight,
+    prob = prev_origin
+  )
+  
+  infected_transfer <- infected_transfer_raw
+  
+  # cap by origin hospital so total infected outgoing does not exceed available infected
+  split_idx <- split(seq_len(nrow(transfers_day)), transfers_day$finess_geo_origin)
+  
+  for (idx in split_idx) {
+    infected_available <- n_infected_origin[idx[1]]
+    proposed_total <- sum(infected_transfer_raw[idx], na.rm = TRUE)
+    
+    if (infected_available <= 0L || proposed_total <= 0L) {
+      infected_transfer[idx] <- 0L
+    } else if (proposed_total > infected_available) {
+      scaled <- infected_transfer_raw[idx] * infected_available / proposed_total
+      base_alloc <- floor(scaled)
+      remainder <- scaled - base_alloc
+      
+      left_to_assign <- infected_available - sum(base_alloc)
+      
+      if (left_to_assign > 0L) {
+        add_one_idx <- order(remainder, decreasing = TRUE)[seq_len(left_to_assign)]
+        base_alloc[add_one_idx] <- base_alloc[add_one_idx] + 1L
+      }
+      
+      infected_transfer[idx] <- as.integer(base_alloc)
+    }
+  }
+  
+  tibble(
+    finess_geo_origin = transfers_day$finess_geo_origin,
+    finess_geo_target = transfers_day$finess_geo_target,
+    weight = transfers_day$weight,
+    prev_origin = prev_origin,
+    infected_transfer = as.integer(infected_transfer)
+  )
+}
+# - cap outgoing infected transfers by current infected stock
+# - return edge-level infected transfers
+```
+
+## Core simulation engine
+
+### One-day aggregate simulation step
+
+*Implement the daily update step.Some stochasticity is added to the functions, including 
+  * a binomial Distribution of whether intra-hospital transmission occurs in each day
+  * a binomial distribution of whether inter-hospital transmission through transfers occurs for transfers. we introduce randomness in whether the transferred patients are the infected transfers. Later we will also add a reduced probability of transfers are reduced for infected patients.
+  *A binomial distribution of whether 
+
+```{r simulate-one-day}
+# TODO:
+# - define simulate_one_day_agg()
+
+# - process transfers for current date
+# - update infected counts after transfer
+# - implement community replacement if applicable
+# - implement clearance
+# - implement within-hospital transmission
+# - return updated state and daily summaries
+simulate_one_day_agg_fast <- function(state,
+                                      transfers_day,
+                                      current_date,
+                                      beta_within = 0.05,
+                                      gamma_clear = 1 / 387,
+                                      admission_prev = 0) {
+  
+  infected_transfers <- compute_daily_infected_transfers_fast(
+    state = state,
+    transfers_day = transfers_day
+  )
+  
+  infected_out <- integer(nrow(state))
+  infected_in  <- integer(nrow(state))
+  
+  if (nrow(infected_transfers) > 0) {
+    idx_out <- match(infected_transfers$finess_geo_origin, state$finess_geo)
+    idx_in  <- match(infected_transfers$finess_geo_target, state$finess_geo)
+    
+    out_sum <- tapply(infected_transfers$infected_transfer, idx_out, sum)
+    in_sum  <- tapply(infected_transfers$infected_transfer, idx_in, sum)
+    
+    infected_out[as.integer(names(out_sum))] <- as.integer(out_sum)
+    infected_in[as.integer(names(in_sum))]   <- as.integer(in_sum)
+  }
+  
+  infected_replaced_from_community <- rbinom(
+    n = nrow(state),
+    size = infected_out,
+    prob = admission_prev
+  )
+  
+  n_infected_after_transfer <- state$n_infected - infected_out + infected_in + infected_replaced_from_community
+  n_infected_after_transfer <- pmax(0L, pmin(n_infected_after_transfer, state$no_beds))
+  
+  # stochastic clearance
+  n_cleared <- rbinom(
+    n = nrow(state),
+    size = n_infected_after_transfer,
+    prob = gamma_clear
+  )
+  
+  n_infected_after_clear <- n_infected_after_transfer - n_cleared
+  
+  n_susceptible <- state$no_beds - n_infected_after_clear
+  
+  p_infection <- 1 - exp(-beta_within * (n_infected_after_clear / state$no_beds))
+  p_infection <- pmin(pmax(p_infection, 0), 1)
+  
+  n_new_infected <- rbinom(
+    n = nrow(state),
+    size = n_susceptible,
+    prob = p_infection
+  )
+  
+  n_infected_final <- n_infected_after_clear + n_new_infected
+  n_infected_final <- pmax(0L, pmin(n_infected_final, state$no_beds))
+  
+  state_new <- tibble(
+    finess_geo = state$finess_geo,
+    no_beds = state$no_beds,
+    n_infected = as.integer(n_infected_final),
+    prevalence = n_infected_final / state$no_beds
+  )
+  
+  daily_summary <- tibble(
+    date = current_date,
+    finess_geo = state_new$finess_geo,
+    no_beds = state_new$no_beds,
+    n_infected = state_new$n_infected,
+    prevalence = state_new$prevalence
+  )
+  
+  overall_summary <- tibble(
+    date = current_date,
+    total_patients = sum(state_new$no_beds),
+    total_infected = sum(state_new$n_infected),
+    overall_prevalence = sum(state_new$n_infected) / sum(state_new$no_beds),
+    n_hospitals_with_case = sum(state_new$n_infected > 0)
+  )
+  
+  list(
+    state = state_new,
+    daily_summary = daily_summary,
+    overall_summary = overall_summary,
+    infected_transfers = infected_transfers
+  )
+}
+
+```
+
+
+```{r run-simulation}
+library(tidyverse)
+library(purrr)
+
+
+run_sis_simulation_agg_fast <- function(hospitals,
+                                        transfers,
+                                        start_date,
+                                        end_date,
+                                        seed_hospital = NULL,
+                                        n_seed_infected = 1,
+                                        beta_within = 0.05,
+                                        gamma_clear = 1 / 387,
+                                        admission_prev = 0.001,
+                                        seed = 123,
+                                        store_transfer_results = FALSE) {
+  
+  set.seed(seed)
+  
+  if (is.null(seed_hospital)) {
+    seed_hospital <- transfers %>%
+      group_by(finess_geo_origin) %>%
+      summarise(total_outgoing = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+      slice_max(order_by = total_outgoing, n = 1, with_ties = FALSE) %>%
+      pull(finess_geo_origin)
+  }
+  
+  state <- initialize_hospital_state(
+    hospitals = hospitals,
+    seed_hospital = seed_hospital,
+    n_seed_infected = n_seed_infected
+  )
+  
+  sim_dates <- seq.Date(
+    from = as.Date(start_date),
+    to = as.Date(end_date),
+    by = "day"
+  )
+  
+  # pre-split transfers once
+  transfers_use <- transfers %>%
+    mutate(transfer_date = as.Date(transfer_date)) %>%
+    select(transfer_date, finess_geo_origin, finess_geo_target, weight)
+  
+  transfers_by_day <- split(
+    transfers_use[, c("finess_geo_origin", "finess_geo_target", "weight")],
+    transfers_use$transfer_date
+  )
+  
+  daily_results <- vector("list", length(sim_dates))
+  overall_results <- vector("list", length(sim_dates))
+  
+  if (store_transfer_results) {
+    transfer_results <- vector("list", length(sim_dates))
+  }
+  
+  for (i in seq_along(sim_dates)) {
+    current_date <- sim_dates[i]
+    transfers_day <- transfers_by_day[[as.character(current_date)]]
+    
+    if (is.null(transfers_day)) {
+      transfers_day <- tibble(
+        finess_geo_origin = character(),
+        finess_geo_target = character(),
+        weight = integer()
+      )
+    }
+    
+    out <- simulate_one_day_agg_fast(
+      state = state,
+      transfers_day = transfers_day,
+      current_date = current_date,
+      beta_within = beta_within,
+      gamma_clear = gamma_clear,
+      admission_prev = admission_prev
+    )
+    
+    state <- out$state
+    daily_results[[i]] <- out$daily_summary
+    overall_results[[i]] <- out$overall_summary
+    
+    if (store_transfer_results) {
+      transfer_results[[i]] <- out$infected_transfers %>%
+        mutate(date = current_date)
+    }
+  }
+  
+  result <- list(
+    seed_hospital = seed_hospital,
+    state_final = state,
+    daily_results = bind_rows(daily_results),
+    overall_results = bind_rows(overall_results)
+  )
+  
+  if (store_transfer_results) {
+    result$infected_transfer_results <- bind_rows(transfer_results)
+  }
+  
+  result
+}
+
+
+```
+
+## Baseline simulation
+
+IN this step we are going to run our model to achieve a steady-state prevalence that reflected the MDRO prevalence in hospitals based on the current literature. 
+
+| Pathogen             |                                                   Admission prevalence: plausible range |              Overall hospital prevalence: plausible range | Main supporting sources                                                                                                                                                                                                                            |
+| -------------------- | --------------------------------------------------------------------------------------: | --------------------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CRE / CPO**        |                                          **1%–5%**, up to **~10%+** in endemic settings |                  **3%–15%** in high-risk/endemic settings | Copenhagen admission screening **1.5% CPO**; Portugal at-risk admission **3%**; Italy multicenter admission **3.9%–11.5%** and in-hospital acquisition **5.1%–15.5%** ([PubMed][1])                                                                |
+| **VRE**              |                                                                               **1%–2%** |                                                 **1%–3%** | Copenhagen admission **1.1%**; Swiss admission **1.2%**, overall **1.1%**; German rehab **3.3%** ([PubMed][1])                                                                                                                                     |
+| **MRSA**             | **1%–5%** for general hospital populations; higher in selected rehab/geriatric settings |                   **1%–10%** broad endemic-hospital range | Copenhagen admission **1.3%**; four-country rehab admission study; Western Europe review shows strong heterogeneity ([PubMed][1])                                                                                                                  |
+| **ESBL-E / ESBL-PE** |                                                                              **8%–17%** |                                               **15%–25%** | Meta-analysis pooled admission **7.91%**; Dutch admission **8.2%**; Portugal at-risk admission **17%**; French overall **17.7%**; Paris rehab **20.6%**; >48 h hospitalized at-risk **24%** ([PubMed][2])                                          |
+| **C. difficile**     |                                                         **3%–6%** asymptomatic carriage | **4%–11%** depending on positivity vs carriage definition | Admission carriage **3.4%**; asymptomatic toxigenic colonization **5.5%**; French overall positivity **7.7%**, toxigenic **3.9%**; French overall carriage **11%**, toxigenic **5.8%**; European hospital-sample positivity **4.4%** ([PubMed][3]) |
+
+[1]: https://pubmed.ncbi.nlm.nih.gov/34648944/?utm_source=chatgpt.com "Screening patients at admission to Copenhagen hospitals ..."
+[2]: https://pubmed.ncbi.nlm.nih.gov/32918969/?utm_source=chatgpt.com "Acquisition of MDR-GNB in hospital settings: a systematic ..."
+[3]: https://pubmed.ncbi.nlm.nih.gov/30771530/?utm_source=chatgpt.com "Universal screening for Clostridioides difficile in a tertiary ..."
+
+
+In simulation work, “steady state” usually means the outcome is no longer changing meaningfully.
+
+The way we're doing this is : 
+
+* look at the last k days
+* compute the range of prevalence in that window
+* optionally compute the absolute slope over time
+* declare steady state if both are sufficiently small
+
+
+
+
+```{r repeat-transfer-matrix and sim, include = FALSE}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(furrr)
+library(future)
+library(progressr)
+library(ggplot2)
+library(lubridate)
+library(here)
+
+# ===========================================================
+# 0. HELPER FUNCTIONS TO REPLICATE TRANSFER MATRIX
+# ===========================================================
+
+# Repeat the original transfer matrix across explicit calendar years.
+# Example:
+#   target_years = c(2024, 2025)  -> 2-year matrix
+#   target_years = c(2024, 2025, 2026) -> 3-year matrix
+
+repeat_transfer_matrix_by_year <- function(
+    transfers,
+    target_years = c(2024, 2025, 2026),
+    window_start_col = "window_start",
+    window_end_col = "window_end",
+    window_id_col = "weekly_window_number"
+) {
+  
+transfers_base <- transfers %>%
+    mutate(
+      across(all_of(c(window_start_col, window_end_col)), as.Date)
+    )
+  
+  max_window_id <- max(transfers_base[[window_id_col]], na.rm = TRUE)
+  
+  map_dfr(seq_along(target_years), function(i) {
+    target_year <- target_years[i]
+    window_shift <- (i - 1) * max_window_id
+    
+    transfers_base %>%
+      mutate(
+        start_month = month(.data[[window_start_col]]),
+        start_day   = day(.data[[window_start_col]]),
+        end_month   = month(.data[[window_end_col]]),
+        end_day     = day(.data[[window_end_col]])
+      ) %>%
+      mutate(
+        "{window_start_col}" := as.Date(
+          sprintf("%d-%02d-%02d", target_year, start_month, start_day)
+        ),
+        "{window_end_col}" := as.Date(
+          sprintf("%d-%02d-%02d", target_year, end_month, end_day)
+        ),
+        "{window_id_col}" := .data[[window_id_col]] + window_shift,
+        transfer_cycle_id = i,
+        transfer_year = target_year
+      ) %>%
+      select(-start_month, -start_day, -end_month, -end_day)
+  }) %>%
+    arrange(.data[[window_start_col]], .data[[window_end_col]])
+}
+
+# HELPER FUNCTION TO DETERMINE WHETHER THE MODEL HAS REACHED STEADY STATE
+
+# Detect whether the overall prevalence trajectory appears to have
+# reached steady state near the end of the simulation.
+#
+# Rule:
+# - Look at the last `window_size` time points
+# - Check whether the range is sufficiently small
+# - Check whether the linear slope is sufficiently close to zero
+
+detect_steady_state <- function(
+    overall_results,
+    prevalence_col = "overall_prevalence",
+    date_col = "date",
+    window_size = 30,
+    range_tol = 0.0005,
+    slope_tol = 0.00001
+) {
+  
+  traj <- overall_results %>%
+    arrange(.data[[date_col]])
+  
+  if (nrow(traj) < window_size) {
+    return(
+      tibble(
+        steady_state_reached = FALSE,
+        steady_state_prevalence = NA_real_,
+        steady_state_day = as.Date(NA),
+        steady_state_range = NA_real_,
+        steady_state_slope = NA_real_,
+        steady_state_window_n = nrow(traj)
+      )
+    )
+  }
+  
+  last_window <- traj %>%
+    slice_tail(n = window_size) %>%
+    mutate(time_index = row_number())
+  
+  prevalence_values <- last_window[[prevalence_col]]
+  
+  window_range <- max(prevalence_values, na.rm = TRUE) -
+    min(prevalence_values, na.rm = TRUE)
+  
+  slope_fit <- lm(
+    formula = stats::as.formula(paste(prevalence_col, "~ time_index")),
+    data = last_window
+  )
+  
+  window_slope <- unname(coef(slope_fit)[["time_index"]])
+  
+  steady_flag <- !is.na(window_range) &&
+    !is.na(window_slope) &&
+    window_range <= range_tol &&
+    abs(window_slope) <= slope_tol
+  
+  tibble(
+    steady_state_reached = steady_flag,
+    steady_state_prevalence = median(prevalence_values, na.rm = TRUE),
+    steady_state_day = max(last_window[[date_col]], na.rm = TRUE),
+    steady_state_range = window_range,
+    steady_state_slope = window_slope,
+    steady_state_window_n = nrow(last_window)
+  )
+}
+```
+
+
+```{r baseline-settings}
+# ===========================================================
+# 1. SETTINGS
+# ===========================================================
+
+# Beta values to test
+beta_grid <- seq(0.005, 0.04, by = 0.001)
+
+# Number of stochastic repetitions per beta
+n_rep_beta <- 50
+
+# Fixed epidemiologic parameters
+gamma_clear_val <- 1 / 387
+admission_prev_val <- 0
+n_seed_infected_val <- 1
+
+# Candidate seed hospitals
+all_candidate_seed_hospitals <- unique(hospitals$finess_geo)
+
+# Simulation years to include in the repeated transfer matrix
+# Change this to c(2024, 2025, 2026) later if you want 3 years.
+sim_years <- c(2024, 2025, 2026)
+
+# Simulation start/end dates matching the repeated matrix
+sim_start_date <- paste0(min(sim_years), "-01-01")
+sim_end_date   <- paste0(max(sim_years), "-12-31")
+
+# Steady-state detection settings
+steady_window_size <- 30
+steady_range_tol   <- 0.0005
+steady_slope_tol   <- 0.00001
+
+# ===========================================================
+# 2. BUILD THE REPEATED TRANSFER MATRIX
+# ===========================================================
+
+transfers_repeated <- repeat_transfer_matrix_by_year(
+  transfers = transfers,
+  target_years = sim_years,
+  window_start_col = "window_start",
+  window_end_col = "window_end",
+  window_id_col = "weekly_window_number"
+)
+
+# Quick check
+transfers_repeated %>%
+  summarise(
+    min_window_start = min(window_start, na.rm = TRUE),
+    max_window_end   = max(window_end, na.rm = TRUE),
+    n_rows           = n()
+  ) %>%
+  print()
+
+transfers_repeated %>%
+  count(transfer_year) %>%
+  print()
+
+# ===========================================================
+# 3. BUILD THE CALIBRATION GRID
+# ===========================================================
+
+set.seed(900000) #Setting seed to any number for replicability
+
+beta_calibration_grid <- tidyr::crossing(
+  beta_within = beta_grid,
+  rep_id = seq_len(n_rep_beta)
+) %>%
+  mutate(
+    row_id = row_number(),
+    sim_seed = sample.int(.Machine$integer.max, n(), replace = FALSE),
+    seed_hospital_iter = sample(all_candidate_seed_hospitals, n(), replace = TRUE)
+  )
+
+beta_calibration_grid %>%
+  select(beta_within, rep_id, row_id, sim_seed, seed_hospital_iter) %>%
+  print(n = 20)
+
+# ===========================================================
+# 4. WRAPPER FOR ONE SIMULATION RUN
+# ===========================================================
+```
+
+
+#### Simulation Run
+
+We evaluated the dynamics of MDRO transmission over a hospital transfer network comprising `r dplyr::n_distinct(hospitals$finess_geo)` hospitals. The simulation was run with `r n_rep_beta` stochastic repetitions for each value of `beta_within`, using a grid from `r sprintf('%.3f', min(beta_grid))` to `r sprintf('%.3f', max(beta_grid))` in steps of `r sprintf('%.3f', beta_grid[2] - beta_grid[1])`. The simulation runs from `r sim_start_date` to `r sim_end_date`, using the repeated transfer matrix across the specified simulation years. In each run, the epidemic was seeded in one hospital selected from the candidate hospital set, with `r n_seed_infected_val` initial infected patient(s), while the clearance rate was fixed at `r signif(gamma_clear_val, 4)` and the admission prevalence was fixed at `r admission_prev_val`. The purpose of these simulations was to characterize how variation in the within-hospital transmission parameter influences outbreak trajectories and long-run prevalence across the network, and to identify plausible values of `beta_within` that reproduce target MDRO prevalence levels. For each model run, we evaluated whether steady state had been reached by inspecting the final `r steady_window_size` days of the overall prevalence trajectory and checking whether both the prevalence range and the absolute slope were sufficiently small, using a slope tolerance of `r steady_slope_tol` and a range tolerance of `r steady_range_tol`. The prevalence outcome evaluated for calibration was the overall MDRO prevalence generated by the model, with particular attention to the prevalence at steady state when the trajectory satisfied the predefined stability criteria.
+
+```{r CORE SIMULATION ENGINE, eval= FALSE}
+
+run_one_beta_calibration <- function(beta_within, sim_seed, seed_hospital) {
+  
+  sim_obj <- run_sis_simulation_agg_fast(
+    hospitals = hospitals,
+    transfers = transfers_repeated,
+    start_date = sim_start_date,
+    end_date   = sim_end_date,
+    seed_hospital = seed_hospital,
+    n_seed_infected = n_seed_infected_val,
+    beta_within = beta_within,
+    gamma_clear = gamma_clear_val,
+    admission_prev = admission_prev_val,
+    seed = sim_seed,
+    store_transfer_results = FALSE
+  )
+  
+  steady_state_info <- detect_steady_state(
+    overall_results = sim_obj$overall_results,
+    prevalence_col = "overall_prevalence",
+    date_col = "date",
+    window_size = steady_window_size,
+    range_tol = steady_range_tol,
+    slope_tol = steady_slope_tol
+  )
+  
+  list(
+    overall_results = sim_obj$overall_results,
+    hospital_results = sim_obj$hospital_results,
+    steady_state_info = steady_state_info
+  )
+}
+
+# ===========================================================
+# 5. RUN THE CALIBRATION SIMULATIONS
+# ===========================================================
+
+progressr::handlers("txtprogressbar")
+
+plan(multisession, workers = max(1, parallelly::availableCores() - 1))
+
+beta_calibration_runs <- with_progress({
+  p <- progressor(steps = nrow(beta_calibration_grid))
+
+  beta_calibration_grid %>%
+    mutate(
+      sim = future_pmap(
+        .l = list(beta_within, sim_seed, seed_hospital_iter),
+        .f = function(beta_within, sim_seed, seed_hospital_iter) {
+          p()
+          run_one_beta_calibration(
+            beta_within = beta_within,
+            sim_seed = sim_seed,
+            seed_hospital = seed_hospital_iter
+          )
+        },
+        .options = furrr_options(seed = TRUE)
+      )
+    )
+})
+plan(sequential)
+
+# ===========================================================
+# 8. BUILD A LONG TRAJECTORY TABLE FOR VISUAL INSPECTION
+# ===========================================================
+
+beta_trajectory_long <- beta_calibration_runs %>%
+  transmute(
+    beta_within,
+    rep_id,
+    row_id,
+    sim_seed,
+    seed_hospital_iter,
+    overall_results = map(sim, "overall_results")
+  ) %>%
+  unnest(overall_results)
+
+beta_trajectory_summary <- beta_trajectory_long %>%
+  group_by(beta_within, date) %>%
+  summarise(
+    prevalence_median = median(overall_prevalence, na.rm = TRUE),
+    prevalence_q25    = quantile(overall_prevalence, 0.25, na.rm = TRUE),
+    prevalence_q75    = quantile(overall_prevalence, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    beta_label = sprintf("beta = %.3f", beta_within)
+  )
+saveRDS(beta_calibration_runs, file = here("Outputs", "beta_calibration_runs.rds"))
+saveRDS(beta_trajectory_long, file = here("Outputs", "beta_trajectory_long.rds"))
+saveRDS(beta_trajectory_summary, file = here("Outputs", "beta_trajectory_summary.rds"))
+
+
+```
+
+
+```{r plotting trajectory, echo = FALSE}
+
+# ===========================================================
+#  EXTRACT END-OF-SIMULATION RESULTS
+# ===========================================================
+
+beta_calibration_final <- beta_calibration_runs %>%
+  transmute(
+    beta_within,
+    rep_id,
+    row_id,
+    sim_seed,
+    seed_hospital_iter,
+    overall_results = map(sim, "overall_results")
+  ) %>%
+  unnest(overall_results) %>%
+  group_by(beta_within, rep_id, row_id, sim_seed, seed_hospital_iter) %>%
+  slice_max(order_by = date, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  rename(
+    final_total_infected = total_infected,
+    final_overall_prevalence = overall_prevalence,
+    final_hospitals_with_case = n_hospitals_with_case
+  )
+
+beta_calibration_final %>%
+  select(beta_within, rep_id, sim_seed, seed_hospital_iter, final_overall_prevalence) %>%
+  print(n = 20)
+
+# ===========================================================
+# EXTRACT STEADY-STATE DIAGNOSTICS
+# ===========================================================
+
+beta_calibration_steady_state <- beta_calibration_runs %>%
+  transmute(
+    beta_within,
+    rep_id,
+    row_id,
+    sim_seed,
+    seed_hospital_iter,
+    steady_state_info = map(sim, "steady_state_info")
+  ) %>%
+  unnest(steady_state_info)
+
+beta_calibration_steady_state %>%
+  select(
+    beta_within,
+    rep_id,
+    sim_seed,
+    seed_hospital_iter,
+    steady_state_reached,
+    steady_state_prevalence,
+    steady_state_day,
+    steady_state_range,
+    steady_state_slope
+  ) %>%
+  print(n = 20)
+
+# QUICK SUMMARY  of how often steady state was reached
+beta_calibration_steady_state %>%
+  count(steady_state_reached) %>%
+  print()
+
+beta_calibration_steady_state %>%
+  group_by(beta_within) %>%
+  summarise(
+    prop_steady = mean(steady_state_reached, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  print(n = Inf)
+
+
+#### Summary of Prevalence Trajctory
+```
+
+```{r plotting trajectory summary}
+
+
+beta_trajectory_long = readRDS(here("Outputs", "beta_trajectory_long.rds"))
+beta_trajectory_summary = readRDS( here("Outputs", "beta_trajectory_summary.rds"))
+beta_calibration_runs = readRDS( here("Outputs", "beta_calibration_runs.rds"))
+
+plot_trajectories_summary <- ggplot(
+  beta_trajectory_summary,
+  aes(x = as.Date(date), y = prevalence_median)
+) +
+  geom_ribbon(
+    aes(ymin = prevalence_q25, ymax = prevalence_q75),
+    alpha = 0.25
+  ) +
+  geom_line(linewidth = 0.8) +
+  facet_wrap(~ beta_label, scales = "free_y", ncol = 6, nrow = 6) +
+   scale_x_date(
+    date_breaks = "3 months",
+    date_labels = "%b-%y"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(size = 9),
+    axis.text.x = element_text(size = 7,angle = 45, hjut=1),
+    axis.text.y = element_text(size = 7),
+    axis.title = element_text(size = 10),
+    plot.title = element_text(size = 13, face = "bold"),
+    plot.subtitle = element_text(size = 10)
+  ) +
+  labs(
+    x = "Date",
+    y = "Overall prevalence",
+    title = "Median prevalence trajectory by beta",
+    subtitle = "Ribbon = IQR across stochastic replicates"
+  )
+
+plot_trajectories_summary
+
+ggsave(
+  filename = here::here("Outputs", "plot_trajectories_summary.png"),
+  plot = plot_trajectories_summary,
+  width = 2400,
+  height = 2000,
+  units = "px",
+  dpi = 300
+)
+
+
+```
+
+
+
+```{r violin-plot-hospital-prev}
+# ===========================================================
+# 13. HOSPITAL-LEVEL PREVALENCE DISTRIBUTION AT END OF SIMULATION
+#     Each dot = one hospital from one simulation run
+# ===========================================================
+
+# IMPORTANT:
+# Replace this with the correct hospital-level prevalence column
+# from sim_obj$hospital_results if needed.
+hospital_prevalence_var <- "hospital_prevalence"
+
+# Define beta bands.
+# Edit the cutoffs if you want a different definition.
+beta_band_lookup <- tibble(
+  beta_within = sort(unique(beta_calibration_grid$beta_within))
+) %>%
+  mutate(
+    beta_band = case_when(
+      beta_within < 0.05 ~ "low",
+      beta_within >= 0.05 & beta_within < 0.15 ~ "mid",
+      beta_within >= 0.15 ~ "high"
+    ),
+    beta_band = factor(beta_band, levels = c("low", "mid", "high"))
+  )
+
+# Extract hospital-level results from each simulation object
+beta_hospital_long <- beta_calibration_runs %>%
+  transmute(
+    beta_within,
+    rep_id,
+    row_id,
+    sim_seed,
+    seed_hospital_iter,
+    hospital_results = map(sim, "hospital_results")
+  ) %>%
+  unnest(hospital_results)
+
+# Keep only the final simulation date for each run and hospital
+# Assumes hospital_results contains:
+# - a date column called `date`
+# - a hospital identifier column (commonly `finess_geo`)
+# - a hospital prevalence column stored in hospital_prevalence_var
+beta_hospital_final <- beta_hospital_long %>%
+  group_by(beta_within, rep_id, row_id, sim_seed, seed_hospital_iter, finess_geo) %>%
+  slice_max(order_by = date, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(
+    within_hospital_prevalence = .data[[hospital_prevalence_var]]
+  ) %>%
+  left_join(beta_band_lookup, by = "beta_within") %>%
+  filter(!is.na(beta_band))
+
+# Quick check
+beta_hospital_final %>%
+  select(beta_within, beta_band, rep_id, finess_geo, within_hospital_prevalence) %>%
+  print(n = 20)
+
+# ===========================================================
+# 14. BOX PLOT
+# ===========================================================
+
+plot_hospital_prev_box <- ggplot(
+  beta_hospital_final,
+  aes(x = beta_band, y = within_hospital_prevalence)
+) +
+  geom_boxplot(outlier.shape = NA, width = 0.55) +
+  geom_jitter(width = 0.18, height = 0, alpha = 0.15, size = 0.8) +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Beta range",
+    y = "Within-hospital prevalence at end of simulation",
+    title = "Distribution of hospital-level prevalence by beta range",
+    subtitle = "Each dot represents one hospital from one simulation run"
+  )
+
+plot_hospital_prev_box
+
+# ===========================================================
+# 15. VIOLIN PLOT
+# ===========================================================
+
+plot_hospital_prev_violin <- ggplot(
+  beta_hospital_final,
+  aes(x = beta_band, y = within_hospital_prevalence)
+) +
+  geom_violin(trim = FALSE, alpha = 0.35) +
+  geom_jitter(width = 0.18, height = 0, alpha = 0.12, size = 0.7) +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Beta range",
+    y = "Within-hospital prevalence at end of simulation",
+    title = "Hospital-level prevalence distribution by beta range",
+    subtitle = "Violin shows the distribution; each dot represents one hospital"
+  )
+
+plot_hospital_prev_violin
+
+# ===========================================================
+# 16. OPTIONAL: SUMMARISE HOSPITAL-LEVEL PREVALENCE BY BETA BAND
+# ===========================================================
+
+hospital_prev_band_summary <- beta_hospital_final %>%
+  group_by(beta_band) %>%
+  summarise(
+    n_hospital_points = n(),
+    prevalence_mean   = mean(within_hospital_prevalence, na.rm = TRUE),
+    prevalence_median = median(within_hospital_prevalence, na.rm = TRUE),
+    prevalence_q25    = quantile(within_hospital_prevalence, 0.25, na.rm = TRUE),
+    prevalence_q75    = quantile(within_hospital_prevalence, 0.75, na.rm = TRUE),
+    prevalence_q2.5   = quantile(within_hospital_prevalence, 0.025, na.rm = TRUE),
+    prevalence_q97.5  = quantile(within_hospital_prevalence, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+hospital_prev_band_summary
+
+```
+

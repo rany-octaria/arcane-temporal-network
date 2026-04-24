@@ -187,3 +187,16 @@ coords_beds_active = left_join(active_hosp, coords_beds, by ="finess_geo")
 
 #Only keep the files we want to use for later in the environment
 rm(list = setdiff(ls(), c("coords_beds_active", "weekly", "daily_admission")))
+
+
+#Saving the files for loading later
+getwd()
+library(here)
+saveRDS(coords_beds_active, file = here("Cluster Jobs", "coords_beds_active.RDS") )
+saveRDS(daily_admission, file = here("Cluster Jobs", "daily_admission.RDS") )
+saveRDS(weekly, file = here("Cluster Jobs", "weekly.RDS") )
+
+saveRDS(coords_beds_active, file = here("Datasets","Output Data", "coords_beds_active.RDS") )
+saveRDS(daily_admission, file = here("Datasets","Output Data", "daily_admission.RDS") )
+saveRDS(weekly, file = here("Datasets","Output Data", "weekly.RDS") )
+
