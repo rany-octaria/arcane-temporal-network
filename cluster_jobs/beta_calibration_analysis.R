@@ -243,9 +243,9 @@ print(beta_summary, n = Inf)
 
 amr_tiers <- tribble(
   ~amr_tier, ~description,                                               ~prev_min, ~prev_max,
-  "Low",     "CPE/CRE (N/W EU), VRE (N. EU nursing homes), CRAB",       0.000,     0.020,
-  "Mid",     "MRSA (N/W EU wards/ICU), VRE (DE/IT), ESBL-E (NL/Nordic)", 0.020,    0.100,
-  "High",    "ESBL-E (CH/BE/FR), MRSA (S/E EU), MDRO nursing homes",    0.100,     0.400
+  "Low",     "CPE/CRE, VRE, CRAB",       0.000,     0.020,
+  "Mid",     "MRSA, VRE , ESBL (Nordic/NL)", 0.020,    0.100,
+  "High",    "ESBL , MRSA, ARB in nursing homes",    0.100,     0.400
 ) %>%
   mutate(amr_tier = factor(amr_tier, levels = c("Low", "Mid", "High")))
 
@@ -404,50 +404,97 @@ save_ppt(plot_trajectories, out_file("plot_01_trajectories", "png"))
 
 # ============================================================
 # 14. PLOT 2 — Beta vs Steady-State Prevalence Curve
-#     with colonization tier bands overlaid
+#     with colonization tier bands + vertical lines at the
+#     median beta of each tier (from beta_agnostic_summary)
+# Text sizes are ~35% larger than common_theme for PPT legibility
 # ============================================================
+
+# Pull median beta per tier for the vertical lines
+tier_median_betas <- beta_agnostic_summary %>%
+  select(amr_tier, beta_median) %>%
+  mutate(
+    tier_color = tier_colors[as.character(amr_tier)],
+    # Label positioned just above the x-axis
+    vline_label = sprintf("%s tier\nβ = %.4f", amr_tier, beta_median)
+  )
 
 plot_beta_curve <- ggplot(beta_summary,
                           aes(x = beta_within, y = prev_mean)) +
+  
+  # ── Horizontal tier bands ──────────────────────────────────
   annotate("rect", xmin = -Inf, xmax = Inf,
            ymin = 0.000, ymax = 0.020, fill = OI$green,  alpha = 0.07) +
   annotate("rect", xmin = -Inf, xmax = Inf,
            ymin = 0.020, ymax = 0.100, fill = OI$orange, alpha = 0.07) +
   annotate("rect", xmin = -Inf, xmax = Inf,
            ymin = 0.100, ymax = Inf,   fill = OI$red,    alpha = 0.07) +
+  
+  # ── Horizontal tier boundary lines ────────────────────────
   geom_hline(yintercept = 0.020, linetype = "dashed",
-             color = OI$orange, linewidth = 0.7) +
+             color = OI$orange, linewidth = 0.8) +
   geom_hline(yintercept = 0.100, linetype = "dashed",
-             color = OI$red,    linewidth = 0.7) +
+             color = OI$red,    linewidth = 0.8) +
+  
+  # ── Horizontal tier labels ─────────────────────────────────
   annotate("text", x = min(beta_summary$beta_within),
-           y = 0.010, hjust = 0, size = 3.5, fontface = "bold",
+           y = 0.010, hjust = 0, size = 5, fontface = "bold",
            color = OI$green,  label = "LOW  (<2%)") +
   annotate("text", x = min(beta_summary$beta_within),
-           y = 0.058, hjust = 0, size = 3.5, fontface = "bold",
+           y = 0.058, hjust = 0, size = 5, fontface = "bold",
            color = OI$orange, label = "MID  (2–10%)") +
   annotate("text", x = min(beta_summary$beta_within),
-           y = 0.115, hjust = 0, size = 3.5, fontface = "bold",
+           y = 0.115, hjust = 0, size = 5, fontface = "bold",
            color = OI$red,    label = "HIGH  (>10%)") +
+  
+  # ── Vertical lines at median beta per tier ─────────────────
+  geom_vline(
+    data        = tier_median_betas,
+    aes(xintercept = beta_median, color = amr_tier),
+    linetype    = "solid", linewidth = 1.1, alpha = 0.85,
+    show.legend = FALSE
+  ) +
+  
+  # ── Vertical line labels — top of plot ────────────────────
+  geom_text(
+    data = tier_median_betas,
+    aes(x = beta_median, y = Inf,
+        label = vline_label, color = amr_tier),
+    vjust = 1.3, hjust = 0.5, size = 4.5, fontface = "bold",
+    lineheight = 0.9, show.legend = FALSE
+  ) +
+  
+  # ── 95% CI ribbon + mean line + points ─────────────────────
   geom_ribbon(aes(ymin = prev_ci95_lo, ymax = prev_ci95_hi),
               fill = OI$sky, alpha = 0.30) +
-  geom_line(color  = OI$blue, linewidth = 1.2) +
-  geom_point(color = OI$blue, size = 2.8) +
+  geom_line(color  = OI$blue, linewidth = 1.4) +
+  geom_point(color = OI$blue, size = 3.5) +
+  
+  scale_color_manual(values = tier_colors, guide = "none") +
   scale_x_continuous(
     breaks = unique(beta_summary$beta_within),
     labels = function(x) sprintf("%.3f", x)
   ) +
   scale_y_continuous(
     labels = percent_format(accuracy = 0.1),
-    expand = expansion(mult = c(0, 0.05))
+    expand = expansion(mult = c(0, 0.08))  # extra top space for vline labels
   ) +
+  
+  # ── Text sizes ~35% bigger than common_theme ───────────────
   common_theme +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
-        axis.text.y = element_text(size = 10)) +
+  theme(
+    axis.text.x  = element_text(angle = 45, hjust = 1, size = 13),
+    axis.text.y  = element_text(size = 13),
+    axis.title   = element_text(size = 17),
+    plot.title   = element_text(size = 21, face = "bold"),
+    plot.subtitle= element_text(size = 15, color = "grey40")
+  ) +
   labs(
     x        = "β (within-hospital transmission rate)",
     y        = "Steady-state prevalence",
     title    = "SIS Model: β vs Steady-State Prevalence",
-    subtitle = "Mean ± 95% CI | Shaded regions = colonization/carriage prevalence tiers (European screening data)"
+    subtitle = paste0(
+      "Mean ± 95% CI  |  Shaded = colonization/carriage tiers  |  ",
+      "Vertical lines = median β per tier (European screening benchmarks)")
   )
 
 print(plot_beta_curve)

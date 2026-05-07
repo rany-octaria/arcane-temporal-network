@@ -49,7 +49,7 @@ ANIM_EVERY_N_DAYS <- 2   # sample one frame every 2 simulated days
 ANIM_FPS          <- 9   # 9fps × ~548 frames ≈ 61 seconds
 
 # Node sizes — proportional to hospital bed count, 3× original
-NODE_SIZE_RANGE <- c(2.5, 22)
+NODE_SIZE_RANGE <- c(1.2, 13)
 
 # Colour tokens — light background theme
 BG_COLOR      <- "#F5F7FA"   # slide background
@@ -80,6 +80,9 @@ SNAPSHOT_DATES <- as.Date(c(
 message("BETA_SIM   = ", BETA_SIM)
 message("SIM_SEED   = ", SIM_SEED)
 message("OUTPUT_DIR = ", output_dir)
+
+# Tag used in all output filenames — e.g. "beta0.020"
+beta_tag <- sprintf("beta%.3f", BETA_SIM)
 
 # ============================================================
 # 1. LOAD DATA
@@ -283,13 +286,6 @@ for (i in seq_along(sim_dates)) {
     lat        = state$lat
   )
   
-  # Track network-level prevalence for steady-state detection
-  overall_traj <- bind_rows(
-    overall_traj,
-    tibble(date    = d,
-           net_prev = sum(state$n_infected) / sum(state$no_beds))
-  )
-  
   if (i %% 100 == 0)
     message(sprintf("  Day %d / %d  —  %s  —  %d hospitals with cases",
                     i, length(sim_dates), d,
@@ -354,14 +350,14 @@ map_theme <- theme_void(base_family = "sans") +
     plot.background  = element_rect(fill = BG_COLOR, color = NA),
     panel.background = element_rect(fill = BG_COLOR, color = NA),
     legend.position  = c(0.92, 0.25),
-    legend.title     = element_text(color = TEXT_DARK, size = 14, face = "bold"),
-    legend.text      = element_text(color = TEXT_SOFT, size = 12),
+    legend.title     = element_text(color = TEXT_DARK, size = 36, face = "bold"),
+    legend.text      = element_text(color = TEXT_SOFT, size = 30),
     legend.key.size  = unit(1.2, "cm"),
     plot.title       = element_text(color = TEXT_DARK, size = 22, face = "bold",
                                     hjust = 0.5, margin = margin(t = 12, b = 4)),
-    plot.subtitle    = element_text(color = "#1B6CA8", size = 14,
+    plot.subtitle    = element_text(color = "#1B6CA8", size = 36,
                                     hjust = 0.5, margin = margin(b = 6)),
-    plot.caption     = element_text(color = TEXT_SOFT, size = 10,
+    plot.caption     = element_text(color = TEXT_SOFT, size = 28,
                                     hjust = 0.5, margin = margin(t = 6, b = 8)),
     plot.margin      = margin(10, 10, 10, 10)
   )
@@ -444,11 +440,11 @@ make_frame <- function(day_data, date_val,
     
     # Colour scale: gold (low occupancy) → dark red (high occupancy)
     scale_color_gradientn(
-      name   = "Bed occupancy\n(proportion infected)",
+      name   = "Proportion of beds\nwith infected cases\n\n● Grey = 0 cases\n● Colour = ≥1 case",
       colors = c("#F5A623", "#E8650A", "#CC2200", "#8B0000"),
-      limits = c(0, 1),
+      limits = c(0.001, 1),
       labels = percent_format(accuracy = 1),
-      guide  = guide_colorbar(barwidth = 1.8, barheight = 9,
+      guide  = guide_colorbar(barwidth = 3.6, barheight = 18,
                               title.position = "top")
     ) +
     
@@ -458,14 +454,14 @@ make_frame <- function(day_data, date_val,
     # Date stamp — top left
     annotate("text", x = -5.1, y = 51.0,
              label    = format(as.Date(date_val), "%d %b %Y"),
-             color    = TEXT_DARK, size = 7.5, fontface = "bold", hjust = 0) +
+             color    = TEXT_DARK, size = 10, fontface = "bold", hjust = 0) +
     
     # Stats annotation — bottom left
     annotate("text", x = -5.1, y = 41.7,
              label = sprintf(
                "%d hospitals with cases (%.1f%% of network)\nNetwork prevalence: %.2f%%",
                n_cases, 100 * n_cases / n_total, 100 * net_prev),
-             color = TEXT_SOFT, size = 4.5, hjust = 0, lineheight = 1.5) +
+             color = TEXT_SOFT, size = 6.5, hjust = 0, lineheight = 1.5) +
     
     # Lock axes to mainland France — prevents per-frame rescaling
     coord_sf(xlim = c(-5.5, 9.6), ylim = c(41.0, 51.5), expand = FALSE) +
@@ -501,7 +497,7 @@ for (i in seq_along(static_dates)) {
   day_data <- sim_trajectory %>% filter(date == d)
   p        <- make_frame(day_data, d)   # active_edges computed internally
   fname    <- file.path(output_dir,
-                        sprintf("network_snapshot_%02d_%s.png", i, format(d, "%Y-%m-%d")))
+                        sprintf("network_snapshot_%02d_%s_%s.png", i, format(d, "%Y-%m-%d"), beta_tag))
   ggsave(fname, p, width = 14, height = 10, dpi = 200, bg = BG_COLOR)
   message("  Saved: ", basename(fname))
 }
@@ -524,7 +520,7 @@ library(patchwork)   # install.packages("patchwork") if needed
 
 # Helper: builds one panel frame — map only, no title/subtitle/caption,
 # date stamp and compact stats kept, black border via plot.background
-make_panel_frame <- function(day_data, date_val) {
+make_panel_frame <- function(day_data, date_val, show_legend = FALSE) {
   
   infected     <- day_data %>% filter(n_infected > 0)
   n_cases      <- nrow(infected)
@@ -568,18 +564,18 @@ make_panel_frame <- function(day_data, date_val) {
       color = "#CC2200", alpha = 0.15, shape = 16
     ) +
     scale_color_gradientn(
-      name   = "Bed occupancy",
+      name   = "Proportion of beds\nwith infected cases\n\n● Grey = 0 cases\n● Colour = ≥1 case",
       colors = c("#F5A623", "#E8650A", "#CC2200", "#8B0000"),
-      limits = c(0, 1),
+      limits = c(0.001, 1),
       labels = percent_format(accuracy = 1),
-      guide  = guide_colorbar(barwidth = 0.6, barheight = 4,
+      guide  = guide_colorbar(barwidth = 1.2, barheight = 8,
                               title.position = "top")
     ) +
     scale_size_continuous(range = NODE_SIZE_RANGE, guide = "none") +
     # Date stamp — bold, top-left inside each panel
     annotate("text", x = -5.0, y = 51.0,
              label = format(as.Date(date_val), "%d %b %Y"),
-             color = TEXT_DARK, size = 8, fontface = "bold", hjust = 0) +
+             color = TEXT_DARK, size = 5, fontface = "bold", hjust = 0) +
     # Compact stats — bottom-left inside each panel
     annotate("text", x = -5.0, y = 41.8,
              label = sprintf("%d hospitals (%.1f%%)\nPrevalence: %.2f%%",
@@ -592,16 +588,18 @@ make_panel_frame <- function(day_data, date_val) {
       plot.background  = element_rect(fill = BG_COLOR,
                                       color = "black", linewidth = 1.8),
       panel.background = element_rect(fill = BG_COLOR, color = NA),
-      legend.position  = "right",
-      legend.title     = element_text(color = TEXT_DARK, size = 12, face = "bold"),
-      legend.text      = element_text(color = TEXT_SOFT, size = 9),
+      legend.position  = if (show_legend) c(1.12, 0.5) else "none",
+      legend.title     = element_text(color = TEXT_DARK, size = 22, face = "bold"),
+      legend.text      = element_text(color = TEXT_SOFT, size = 18),
       plot.margin      = margin(6, 6, 6, 6)  # space so the border shows clearly
     )
 }
 
 # Build the 6 individual panel frames
-panel_plots <- map(static_dates, function(d) {
-  make_panel_frame(sim_trajectory %>% filter(date == d), d)
+# Only the last frame (bottom right) shows the legend
+panel_plots <- imap(static_dates, function(d, i) {
+  make_panel_frame(sim_trajectory %>% filter(date == d), d,
+                   show_legend = (i == length(static_dates)))
 })
 
 # Assemble 3 columns x 2 rows; shared title via plot_annotation
@@ -609,14 +607,14 @@ panel_grid <- wrap_plots(panel_plots, ncol = 3, nrow = 2) +
   plot_annotation(
     title = "ARB Spread Across the French Hospital Network",
     theme = theme(
-      plot.title      = element_text(size = 40, face = "bold",
+      plot.title      = element_text(size = 28, face = "bold",
                                      hjust = 0.5, color = TEXT_DARK,
                                      margin = margin(b = 14)),
       plot.background = element_rect(fill = BG_COLOR, color = NA)
     )
   )
 
-panel_fname <- file.path(output_dir, "network_panel_6snapshots.png")
+panel_fname <- file.path(output_dir, sprintf("network_panel_6snapshots_%s.png", beta_tag))
 ggsave(panel_fname, panel_grid,
        width = 24, height = 16, dpi = 200, bg = BG_COLOR)
 message("Panel saved: ", basename(panel_fname))
@@ -680,11 +678,11 @@ anim_plot <- ggplot() +
   ) +
   
   scale_color_gradientn(
-    name   = "Bed occupancy\n(proportion infected)",
+    name   = "Proportion of beds\nwith infected cases\n\n● Grey = 0 cases\n● Colour = ≥1 case",
     colors = c("#F5A623", "#E8650A", "#CC2200", "#8B0000"),
-    limits = c(0, 1),
+    limits = c(0.001, 1),
     labels = percent_format(accuracy = 1),
-    guide  = guide_colorbar(barwidth = 1.8, barheight = 9,
+    guide  = guide_colorbar(barwidth = 3.6, barheight = 18,
                             title.position = "top")
   ) +
   scale_size_continuous(range = NODE_SIZE_RANGE, guide = "none") +
@@ -721,7 +719,7 @@ animate(
   width    = 1400,
   height   = 1000,
   renderer = gifski_renderer(
-    file.path(output_dir, "network_animation.gif")),
+    file.path(output_dir, sprintf("network_animation_%s.gif", beta_tag))),
   bg       = BG_COLOR
 )
 
@@ -734,7 +732,7 @@ message("GIF saved.")
 
 final_state <- sim_trajectory %>% filter(date == max(date))
 p_final     <- make_frame(final_state, max(sim_trajectory$date))
-ggsave(file.path(output_dir, "network_final_state.png"),
+ggsave(file.path(output_dir, sprintf("network_final_state_%s.png", beta_tag)),
        p_final, width = 16, height = 11, dpi = 300, bg = BG_COLOR)
 
 message("Final state PNG saved.")
