@@ -1,0 +1,4 @@
+Job finished on  : 2026-05-04 18:47:02.923515
+Rows saved       : 900
+Output file      : C:\Users\octariar\OneDrive - LECNAM\Documents\GitHub\arcane-temporal-network-new/cluster_jobs/Outputs/2026-05-04/2026-05-04_beta_calibration_runs_LOCAL.rds
+Root dir         : C:\Users\octariar\OneDrive - LECNAM\Documents\GitHub\arcane-temporal-network-new

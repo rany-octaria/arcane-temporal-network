@@ -1,0 +1,268 @@
+---
+title: "SPARES Beta Estimation Report"
+author: "Analyst"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+We estimated the transmission parameter (β)  for each hospital type using a regression-based approach adapted from Paul et al. (2020, Clinical Infectious Diseases). 
+
+For short-term facilities, we fitted a log-linear regression model of infection incidence (log rate) as a function of average length of stay, including region fixed effects to control for geographic variability (each region may be represented by 1-4 grouped facility types). The slope of this regression was then transformed analytically into β using the theoretical relationship derived in the paper. 
+
+For long-term (rehabilitation) facilities, where lengths of stay are substantially longer, we used an alternative linear regression of infection rate against the inverse of length of stay, as recommended by Paul et al., to ensure appropriate scaling. Confidence intervals were obtained using standard errors of the regression coefficients and propagated through the transformation to β. This framework allows consistent estimation of transmission intensity across facility types while accounting for differences in patient turnover and exposure time.
+
+# Mathematical Framework (Paul et al. 2020)
+
+We follow the approach of Paul et al. (2020) to relate infection incidence to transmission dynamics and length of stay.
+
+## Infection rate definition
+
+The observed infection rate is defined as:
+
+$$
+r = \frac{C}{N}
+$$
+
+where:
+- \( C \) is the number of observed cases  
+- \( N \) is the number of patients  
+
+---
+
+## Relationship between rate and transmission
+
+Under a simple transmission model, the infection rate grows exponentially with length of stay \( \tau \):
+
+$$
+r = A \, e^{c \tau}
+$$
+
+where:
+- \( c \) is the regression slope
+- \( \tau \) is the average length of stay
+- \( A \) is a constant
+
+Taking logs gives the regression form:
+
+$$
+\log(r) = \log(A) + c \tau
+$$
+
+---
+
+## Link between slope and transmission parameter
+
+The slope \( c \) is related to the transmission parameter \( \beta \) through:
+
+$$
+c = \frac{\beta - \gamma}{1 - \tau (\beta - \gamma)}
+$$
+
+where:
+- \( \beta \) = transmission rate  
+- \( \gamma \) = decolonization (clearance) rate  
+
+---
+
+## Solving for β (key equation)
+
+Rearranging:
+
+$$
+\beta = \frac{c}{1 + c \tau} + \gamma
+$$
+
+This is the main formula used to convert the regression slope into β.
+
+---
+
+## Long-term care formulation
+
+For long-term facilities (large \( \tau \)), the approximation becomes:
+
+$$
+r = \frac{a}{\tau}
+$$
+
+which can be written as a regression:
+
+$$
+\frac{C}{N} = c_0 + c_1 \frac{1}{\tau}
+$$
+
+---
+
+## Beta from long-term model
+
+From the regression coefficients:
+
+$$
+\beta = \frac{c_0}{-c_1} + \gamma
+$$
+
+---
+
+## Summary
+
+Thus, β is estimated from regression outputs:
+
+- **Short-term facilities:** log-linear regression of rate vs LOS 
+
+- **Long-term facilities:** linear regression vs inverse LOS  
+
+These transformations allow consistent estimation of transmission across different healthcare settings.
+Because there were multiple years of data, we did several approach to the regression
+
+- **Year by year regression short-term vs long-term**. Each for short term hospital ( General, Private, non-Profit and University) in one model vs Long term hospital model, resulting in betas for short term and long-term hospital for each year (2019 - 2022)
+
+- **Pooled for 4 years** Summarize all years into one, and run a short term and long-term model
+
+- **Pooled for 4 years, but run one regression each for each hospital type**. the General, private, non-profir, and university used short-term equations, while rehab hospital used long-term equations.
+
+
+
+
+```{r setup, message=FALSE, echo = FALSE, warning=FALSE}
+library(here)
+library(tidyverse)
+
+# =============================================================================
+# SPARES_beta_full_pipeline.R   --  regression betas (Paul et al.), one place
+# -----------------------------------------------------------------------------
+# REGRESSION (Paul et al.) betas on the clinical cases, three ways:
+#   (a) year-by-year   (b) 4-year total   (c) per facility type (pooled)
+# Ends with a master table of every beta + a plot.
+#
+
+library(here)
+library(tidyverse)
+
+pars      <- list(gamma = 1 / 387)
+SSR_LABEL <- "Rehabilitation hospital"
+
+matched <- readRDS(here("Datasets", "Output Data", "Enriched Facility Data",
+                        "spares_incidence_los_matched.RDS"))
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+build_tbl <- function(df, summed = FALSE) {
+  base <- df %>%
+    mutate(cases = n_esbl_ecloacaecomplex + n_esbl_ecoli + n_esbl_kpneumoniae,
+           id = paste(region, type, sep = " | "), hrrnum = region)
+  if (summed) {
+    base <- base %>% group_by(id, hrrnum, type) %>%
+      summarise(cre_count = sum(cases),
+                freq    = sum(as.numeric(reg_type_n_patients)),
+                IPdays  = sum(as.numeric(n_bed_days)),
+                avg_los = first(as.numeric(reg_type_los_avg)), .groups = "drop")
+  } else {
+    base <- base %>% transmute(id, hrrnum, type, cre_count = cases,
+                               freq = as.numeric(reg_type_n_patients),
+                               IPdays = as.numeric(n_bed_days),
+                               avg_los = as.numeric(reg_type_los_avg))
+  }
+  base %>% mutate(rate = ifelse(cre_count > 0, cre_count / freq, NA))
+}
+
+# faithful Paul STH/LTH with negative-slope guard -> two rows (short, long)
+estimate_beta <- function(tbl, run_label) {
+  s  <- subset(tbl, type != SSR_LABEL & !is.na(rate) & rate > 0)
+  ms <- lm(log(rate) ~ avg_los + as.factor(hrrnum), data = s)
+  cs <- coef(ms)[["avg_los"]]; tau <- mean(s$avg_los)
+  ses <- sqrt(vcov(ms)["avg_los", "avg_los"]); den <- 1 + cs * tau
+  if (is.finite(cs) && cs > 0 && den > 0) {
+    beta_S <- cs / den + pars$gamma
+    ml <- log(cs); sdl <- ses / abs(cs)
+    ci <- c(exp(ml - qnorm(.975)*sqrt(sdl)), exp(ml + qnorm(.975)*sqrt(sdl)))
+    ciS <- ci / (1 + ci * tau) + pars$gamma; flagS <- "ok"
+  } else { beta_S <- NA; ciS <- c(NA, NA); flagS <- sprintf("neg/zero slope %.3f", cs) }
+  
+  l  <- subset(tbl, type == SSR_LABEL)
+  ll <- lm(I(cre_count / freq) ~ I(1 / avg_los), data = l)
+  c0 <- coef(ll)[1]; c1 <- coef(ll)[2]; beta_L <- c0 / (-c1) + pars$gamma
+  tmp <- c(1/c1, -c0/c1^2); sdl2 <- c(sqrt(tmp %*% vcov(ll) %*% tmp))
+  if (is.finite(beta_L) && beta_L > 0) {
+    lb <- log(beta_L); ls <- sdl2/abs(beta_L)
+    ciL <- c(exp(lb - 1.96*sqrt(ls)), exp(lb + 1.96*sqrt(ls)))
+    flagL <- if (c1 < 0) "ok" else "WARN c1>=0"
+  } else { ciL <- c(NA, NA); flagL <- "beta_L<=0" }
+  
+  tibble(method = "regression", run = run_label,
+         group = c("short_term", "long_term"),
+         beta = c(beta_S, beta_L), beta_lo = c(ciS[1], ciL[1]),
+         beta_hi = c(ciS[2], ciL[2]), flag = c(flagS, flagL))
+}
+
+# per facility type (short model no region FE; long for SSR)
+estimate_by_type <- function(tbl, tv) {
+  sub <- subset(tbl, type == tv)
+  if (tv != SSR_LABEL) {
+    s <- subset(sub, !is.na(rate) & rate > 0); m <- lm(log(rate) ~ avg_los, data = s)
+    cs <- coef(m)[["avg_los"]]; tau <- mean(s$avg_los); den <- 1 + cs * tau
+    beta <- if (is.finite(cs) && cs > 0 && den > 0) cs/den + pars$gamma else NA
+    flag <- if (is.finite(beta)) "ok" else sprintf("neg/zero slope %.3f", cs)
+  } else {
+    m <- lm(I(cre_count/freq) ~ I(1/avg_los), data = sub)
+    c0 <- coef(m)[1]; c1 <- coef(m)[2]; beta <- c0/(-c1) + pars$gamma
+    flag <- if (is.finite(beta) && beta > 0) "ok" else "beta<=0"
+  }
+  tibble(method = "regression_bytype", run = "total_4yr",
+         group = tv, beta = beta, beta_lo = NA_real_, beta_hi = NA_real_, flag = flag)
+}
+
+# -----------------------------------------------------------------------------
+# Run all three regression approaches (once)
+# -----------------------------------------------------------------------------
+yrs       <- sort(unique(matched$Date_year))
+res_year  <- map_dfr(yrs, ~ estimate_beta(build_tbl(filter(matched, Date_year == .x)),
+                                          paste0("year_", .x)))
+res_total <- estimate_beta(build_tbl(matched, summed = TRUE), "total_4yr")
+tot       <- build_tbl(matched, summed = TRUE)
+res_type  <- map_dfr(sort(unique(tot$type)), ~ estimate_by_type(tot, .x))
+
+all_betas <- bind_rows(res_year, res_total, res_type) %>%
+  select(method, run, group, beta, beta_lo, beta_hi, flag) %>%
+  arrange(method, group, run)
+
+cat("\n================= ALL BETAS =================\n")
+
+# all_betas %>%
+#   mutate(across(c(beta, beta_lo, beta_hi), ~ round(.x, 4))) %>%
+#   as.data.frame() #%>% print(row.names = FALSE)
+
+
+
+library(knitr)
+library(kableExtra)
+
+all_betas %>%
+  mutate(across(c(beta, beta_lo, beta_hi), ~ round(.x, 4))) %>%
+  kable(format = "html", digits = 4,
+        col.names = c("Method", "Run", "Group", "Beta", "Lower 95% CI", "Upper 95% CI", "Flag")) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  row_spec(0, bold = TRUE)
+write.csv(all_betas, here("Outputs", "SPARES Beta Estimation", 
+                          "beta_full_pipeline_all.csv"))
+# -----------------------------------------------------------------------------
+# Visualise: regression beta by run (year-by-year + total), short vs long
+# -----------------------------------------------------------------------------
+BASE_TEXT <- 13
+pal <- c(short_term = "#0057B8", long_term = "#C1392B")
+
+p1 <- res_year %>% bind_rows(res_total) %>% filter(!is.na(beta)) %>%
+  ggplot(aes(run, beta, colour = group)) +
+  geom_pointrange(aes(ymin = beta_lo, ymax = beta_hi), size = .8) +
+  scale_colour_manual(values = pal) +
+  labs(title = "Regression beta by run", x = NULL,
+       y = expression(beta~"(per day)"), colour = NULL) +
+  theme_minimal(base_size = BASE_TEXT) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+ggsave(here( "Outputs", "SPARES Beta Estimation", "beta_regression_runs.png"),
+       p1, width = 8, height = 5, dpi = 150)
+
+print(p1)
+
+```
+
+

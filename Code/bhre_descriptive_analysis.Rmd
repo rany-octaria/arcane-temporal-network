@@ -1,0 +1,632 @@
+---
+title: "BHRe episodes — descriptive analysis"
+subtitle: "Episodes and cases by year, region, facility type, mechanism and microorganism"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    df_print: paged
+params:
+  facility_type_col: "facility_type_pmsi"   # or "hospital_type"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 9, fig.height = 5, dpi = 110)
+library(here); knitr::opts_knit$set(root.dir = here::here())
+library(dplyr); library(tidyr); library(stringr); library(purrr); library(forcats)
+library(lubridate); library(stringi); library(ggplot2); library(scales); library(knitr)
+library(sf); library(giscoR)
+theme_set(theme_minimal(base_size = 12))
+pal_fill <- function(...) scale_fill_viridis_d(...)
+```
+
+# What this report covers
+
+Each **episode** is one row (`ehesp_id`); the episode **date** is
+`first_positive_sample_date`. **Cases** are the number of patients in an episode
+(`n_total_if_secondary_cases`, treated as 1 when not recorded — i.e. the index
+case). We describe episodes and cases by **year, region, facility type**, their
+combinations, and **over time**, first for all resistance mechanisms together and
+then broken down by **mechanism** (from mechanism slots 1 and 2) and by
+**microorganism** (all species slots). Finally we map both onto France.
+
+> When we break down **by mechanism** or **by microorganism**, an episode that
+> carries two mechanisms (or two species) is counted under each. Group totals can
+> therefore add up to more than the overall total — this is expected.
+
+# Load and link
+
+```{r load}
+bhre = readRDS(here("Datasets" , "Sante Publique","Cleaned", "bhre_hosp_clean.RDS"))
+
+```
+
+# Build the analysis variables
+
+```{r derive}
+# ---- reference maps ----
+species_map <- c(
+  CITFRE="Citrobacter freundii", CITKOS="Citrobacter koseri", CITSPP="Citrobacter spp.",
+  ENCFAC="Enterococcus faecium", ENTAER="Enterobacter aerogenes", ENTCLO="Enterobacter cloacae",
+  ENTSPP="Enterobacter spp.", ESCCOL="Escherichia coli", ESCSPP="Escherichia spp.",
+  ETBAUT="Enterobacterales (other)", ETBNON="Enterobacterales (unspecified)",
+  KLEOXY="Klebsiella oxytoca", KLEPNE="Klebsiella pneumoniae", KLESPP="Klebsiella spp.",
+  MOGMOR="Morganella morganii", PROSPP="Proteus spp.", PRTMIR="Proteus mirabilis",
+  RAOSPP="Raoultella spp.", SALSPP="Salmonella spp.", SERMAR="Serratia marcescens")
+
+oxa48_like <- c("OXA-48","OXA-48-LIKE","OXA-181","OXA-204","OXA-244","OXA-162","OXA-232")
+mech_family_one <- function(x) {
+  x <- toupper(trimws(x)); if (is.na(x) || x == "") return(NA_character_)
+  if (x %in% oxa48_like || str_starts(x, "OXA-48")) return("OXA-48 group")
+  if (str_starts(x, "KPC")) return("KPC");  if (str_starts(x, "NDM")) return("NDM")
+  if (str_starts(x, "VIM")) return("VIM");  if (str_starts(x, "IMP")) return("IMP")
+  if (str_starts(x, "IMI")) return("IMI")
+  if (str_starts(x, "VAN") || str_detect(x, "GLYCOPEPTIDE")) return("Glycopeptide (GRE)")
+  if (str_starts(x, "MCR")) return("mcr (colistin)")
+  "Unspecified / other"
+}
+
+# ---- one row per episode with core dimensions ----
+epi <- bhre %>%
+  mutate(
+    date        = as.Date(first_positive_sample_date),
+    year        = year(date),
+    month       = floor_date(date, "month"),
+    cases       = pmax(coalesce(as.integer(n_total_if_secondary_cases), 1L), 1L),
+    region      = str_squish(region),
+    facility_type = .data[[params$facility_type_col]]
+  ) %>%
+  filter(!is.na(date))
+```
+
+```{r overall, echo=FALSE}
+tibble(measure = c("Episodes (rows)","Cases (patients)","Facilities","Date range"),
+       value = c(as.character(n_distinct(epi$ehesp_id)),
+                 as.character(sum(epi$cases)),
+                 as.character(n_distinct(epi$fin)),
+                 paste(format(min(epi$date)), "to", format(max(epi$date))))) %>%
+  kable(caption = "Overall totals")
+```
+
+# Episodes and cases by year of first specimen collection date
+
+```{r by-year}
+by_year <- epi %>% group_by(year) %>%
+  summarise(episodes = n(), cases = sum(cases), .groups = "drop")
+kable(by_year, caption = "Episodes and cases by year")
+
+by_year %>% pivot_longer(c(episodes, cases)) %>%
+  ggplot(aes(factor(year), value, fill = name)) +
+  geom_col(position = "dodge") +
+  labs(x = "Year", y = NULL, fill = NULL, title = "Episodes and cases reported by year") +
+  scale_fill_manual(values = c(episodes = "#0057B8", cases = "#C1392B"))
+```
+
+For future analyses, we will limit the analyses to cases beginning in 2017. 
+
+# Episodes and cases by region
+
+```{r by-region}
+library(tidyverse)
+epi = filter(epi, year(first_positive_sample_date) >2016)
+
+by_region <- epi %>% filter(!is.na(region)) %>% group_by(region) %>%
+  summarise(episodes = n(), cases = sum(cases), .groups = "drop") %>%
+  arrange(desc(episodes))
+kable(by_region, caption = "Episodes and cases by region")
+
+by_region %>% pivot_longer(c(episodes, cases)) %>%
+  ggplot(aes(fct_reorder(region, value), value, fill = name)) +
+  geom_col(position = "dodge") + coord_flip() +
+  labs(x = NULL, y = NULL, fill = NULL, title = "Episodes and cases by region") +
+  scale_fill_manual(values = c(episodes = "#0057B8", cases = "#C1392B"))
+```
+
+# Episodes and cases by facility type
+
+```{r by-facility}
+
+#Looking at how many episodes matched a facility in our network data
+library(janitor)
+fac_epi = tabyl(epi$facility_type)
+
+kable(fac_epi, caption = "Breakdown of all facility types with episodes, including NAs")
+
+by_fac <- epi %>% filter(!is.na(facility_type)) %>% group_by(facility_type) %>%
+  summarise(episodes = n(), cases = sum(cases), .groups = "drop") %>%
+  arrange(desc(episodes))
+kable(by_fac, caption = "Episodes and cases by facility type, 2017-2025", subtitle = "NAs removed")
+
+by_fac %>% pivot_longer(c(episodes, cases)) %>%
+  ggplot(aes(fct_reorder(facility_type, value), value, fill = name)) +
+  geom_col(position = "dodge") + coord_flip() +
+  labs(x = NULL, y = NULL, fill = NULL, title = "Episodes and cases by facility type") +
+  scale_fill_manual(values = c(episodes = "#0057B8", cases = "#C1392B"))
+
+#Episodes by year and facility type
+
+```
+
+# Combinations
+
+## Year × facility type
+
+```{r year-fac}
+
+by_fac_year <- epi %>% filter(!is.na(facility_type)) %>%
+  group_by(year, facility_type) %>%
+  summarise(episodes = n(), cases = sum(cases), .groups = "drop")
+
+by_fac_year %>% pivot_longer(c(episodes, cases)) %>%
+  ggplot(aes(fct_reorder(facility_type, value), value, fill = name)) +
+  geom_col(position = "dodge") + coord_flip() +
+  facet_wrap(~ year) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       title = "Episodes and cases by facility type, by year") +
+  scale_fill_manual(values = c(episodes = "#0057B8", cases = "#C1392B"))
+
+
+# Episodes by year and facility type
+epi %>% filter(!is.na(facility_type)) %>%
+  count(year, facility_type, name = "episodes") %>%
+  ggplot(aes(factor(year), episodes, fill = facility_type)) +
+  geom_col() +
+  labs(x = "Year", y = "Episodes", fill = "Facility type",
+       title = "Episodes by year and facility type") + pal_fill()
+
+# Cases by year and facility type
+epi %>% filter(!is.na(facility_type)) %>%
+  group_by(year, facility_type) %>%
+  summarise(cases = sum(cases), .groups = "drop") %>%
+  ggplot(aes(factor(year), cases, fill = facility_type)) +
+  geom_col() +
+  labs(x = "Year", y = "Cases", fill = "Facility type",
+       title = "Cases by year and facility type") + pal_fill()
+
+
+```
+
+## Region × facility type (episodes)
+
+```{r region-fac, fig.height=6}
+epi %>% filter(!is.na(region), !is.na(facility_type)) %>%
+  count(region, facility_type, name = "episodes") %>%
+  tidyr::complete(region, facility_type, fill = list(episodes = 0)) %>%
+  ggplot(aes(facility_type, fct_rev(region), fill = episodes)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = episodes), size = 3) +
+  scale_fill_gradientn(colours = c("#E5F5E0", "#FEE08B", "#FC8D59", "#D73027")) +
+  labs(x = "Facility type", y = NULL, fill = "Episodes",
+       title = "Episodes by region and facility type") +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+# Trends over time
+
+```{r timeline}
+by_month <- epi %>% group_by(month) %>%
+  summarise(episodes = n(), cases = sum(cases), .groups = "drop")
+
+by_month %>% pivot_longer(c(episodes, cases)) %>%
+  ggplot(aes(month, value, color = name)) +
+  geom_line(linewidth = 0.8) +
+  scale_color_manual(values = c(episodes = "#0057B8", cases = "#C1392B")) +
+  labs(x = NULL, y = NULL, color = NULL,
+       title = "Monthly trend: episodes and cases reported")
+```
+
+
+
+
+# By resistance mechanism
+
+Mechanisms are read from slots 1 and 2 (`resistance_mechanism_1_1/1_2/2_1/2_2`)
+and grouped into families.
+
+```{r mech-long}
+mech_cols <- c("resistance_mechanism_1_1","resistance_mechanism_1_2",
+               "resistance_mechanism_2_1","resistance_mechanism_2_2")
+epi_mech <- epi %>%
+  select(ehesp_id, year, month, region, facility_type, cases, all_of(mech_cols)) %>%
+  pivot_longer(all_of(mech_cols), values_to = "mech") %>%
+  filter(!is.na(mech), mech != "") %>%
+  mutate(mech_family = map_chr(mech, mech_family_one)) %>%
+  filter(!is.na(mech_family)) %>%
+  distinct(ehesp_id, mech_family, .keep_all = TRUE)   # one episode-per-family row
+```
+
+## Episodes and cases by mechanism family
+
+```{r mech-overall}
+by_mech <- epi_mech %>% group_by(mech_family) %>%
+  summarise(episodes = n_distinct(ehesp_id), cases = sum(cases), .groups = "drop") %>%
+  arrange(desc(episodes))
+kable(by_mech, caption = "Episodes and cases by mechanism family (episodes may appear in >1)")
+
+by_mech %>% pivot_longer(c(episodes, cases)) %>%
+  ggplot(aes(fct_reorder(mech_family, value), value, fill = name)) +
+  geom_col(position = "dodge") + coord_flip() +
+  labs(x = NULL, y = NULL, fill = NULL, title = "Episodes and cases by mechanism family") +
+  scale_fill_manual(values = c(episodes = "#0057B8", cases = "#C1392B"))
+```
+
+
+# Episode Duration (First to Last Case Date)
+
+```{r epi-dur}
+# duration, dropping the negatives/NAs once
+epi_dur <- epi %>%
+  mutate(duration_days = as.numeric(as.Date(last_case_date) - date)) %>%
+  filter(!is.na(duration_days), duration_days >= 0)
+
+
+ggplot(epi_dur, aes(factor(year), duration_days)) +
+  geom_violin(fill = "#0057B8", alpha = 0.4, color = "lightblue") +
+  geom_boxplot(width = 0.15, outlier.size = 1) +
+  labs(x = "Year", y = "Duration (days, first to last case)",
+       title = "Episode duration by year")
+
+ggplot(filter(epi_dur, !is.na(facility_type)),
+       aes(fct_reorder(facility_type, duration_days, median), duration_days)) +
+  geom_violin(fill = "#C1392B", alpha = 0.4, color = "lightblue") +
+  geom_boxplot(width = 0.15, outlier.size = 1) +
+  coord_flip() +
+  labs(x = NULL, y = "Duration (days, first to last case)",
+       title = "Episode duration by facility type")
+
+# per-episode duration
+epi_dur <- epi %>%
+  mutate(duration_days = as.numeric(as.Date(last_case_date) - date)) %>%
+  filter(!is.na(duration_days), duration_days >= 0)
+
+# attach duration to the episode-mechanism long table
+mech_dur <- epi_mech %>%
+  inner_join(select(epi_dur, ehesp_id, duration_days), by = "ehesp_id")
+
+ggplot(mech_dur, aes(fct_reorder(mech_family, duration_days, median), duration_days)) +
+  geom_violin(fill = "#9B1D8A", alpha = 0.4, color = NA) +
+  geom_boxplot(width = 0.15, outlier.size = 0.6) +
+  coord_flip() +
+  labs(x = NULL, y = "Duration (days, first to last case)",
+       title = "Episode duration by mechanism family")
+
+```
+
+## Mechanism families over time
+
+```{r mech-time}
+epi_mech %>% count(month, mech_family, name = "episodes") %>%
+  ggplot(aes(month, episodes, fill = mech_family)) +
+  geom_area(alpha = 0.9) +
+  labs(x = NULL, y = "Episodes", fill = "Mechanism",
+       title = "Monthly episodes by mechanism family") + pal_fill()
+```
+
+## Mechanism family by region
+
+```{r mech-region, fig.height=6}
+epi_mech %>% filter(!is.na(region)) %>% count(region, mech_family, name = "episodes") %>%
+  ggplot(aes(mech_family, fct_rev(region), fill = episodes)) +
+  geom_tile(color = "white") + scale_fill_viridis_c() +
+  labs(x = NULL, y = NULL, fill = "Episodes",
+       title = "Episodes by region and mechanism family") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+# By microorganism (species)
+
+```{r species-long}
+micro_cols <- c("microorganism_1","microorganism_2","microorganism_3")
+epi_sp <- epi %>%
+  select(ehesp_id, year, month, region, facility_type, cases, all_of(micro_cols)) %>%
+  pivot_longer(all_of(micro_cols), values_to = "code") %>%
+  filter(!is.na(code), code != "") %>%
+  mutate(species = recode(str_sub(code, 1, 6), !!!species_map,
+                          .default = str_sub(code, 1, 6))) %>%
+  distinct(ehesp_id, species, .keep_all = TRUE)
+```
+
+## Episodes and cases by species
+
+```{r species-overall, fig.height=6}
+by_sp <- epi_sp %>% group_by(species) %>%
+  summarise(episodes = n_distinct(ehesp_id), cases = sum(cases), .groups = "drop") %>%
+  arrange(desc(episodes))
+kable(by_sp, caption = "Episodes and cases by microorganism (episodes may appear in >1)")
+
+by_sp %>% pivot_longer(c(episodes, cases)) %>%
+  ggplot(aes(fct_reorder(species, value), value, fill = name)) +
+  geom_col(position = "dodge") + coord_flip() +
+  labs(x = NULL, y = NULL, fill = NULL, title = "Episodes and cases by microorganism") +
+  scale_fill_manual(values = c(episodes = "#0057B8", cases = "#C1392B"))
+```
+
+## Top species over time
+
+```{r species-time}
+top_sp <- by_sp$species[seq_len(min(6, nrow(by_sp)))]
+epi_sp %>% filter(species %in% top_sp) %>% count(month, species, name = "episodes") %>%
+  ggplot(aes(month, episodes, color = species)) + geom_line(linewidth = 0.8) +
+  labs(x = NULL, y = "Episodes", color = "Species",
+       title = "Monthly episodes for the most frequent species") +
+  scale_color_viridis_d()
+```
+
+# Mapping Episodes and Case Counts  of France
+
+Regions are matched to boundary polygons by a normalised region key. (Requires
+internet the first time, to download boundaries via `giscoR`.) Previous studies have shown that SPARES data underestimated the incidence by 1/3. 
+
+```{r map-prep}
+region_key <- function(x) toupper(stri_trans_general(str_replace_all(x, "[’'`\\- ]", ""),
+                                                      "Latin-ASCII"))
+reg_counts <- epi %>% filter(!is.na(region)) %>% group_by(region) %>%
+  summarise(episodes = n(), cases = sum(cases), .groups = "drop") %>%
+  mutate(rkey = region_key(region))
+
+# The 13 new metropolitan regions are NUTS level 1 (level 2 = the old regions).
+# Older NUTS names are harmonised to the current region names before keying.
+nuts1_fix <- c(
+  "ALSACECHAMPAGNEARDENNELORRAINE" = "GRANDEST",
+  "AQUITAINELIMOUSINPOITOUCHARENTES" = "NOUVELLEAQUITAINE",
+  "LANGUEDOCROUSSILLONMIDIPYRENEES" = "OCCITANIE",
+  "NORDPASDECALAISPICARDIE" = "HAUTSDEFRANCE")
+
+fr <- gisco_get_nuts(country = "FR", nuts_level = 1, year = "2021", resolution = "20") %>%
+  st_transform(2154) %>%                       # Lambert-93 (metropolitan France)
+  mutate(rkey = region_key(NAME_LATN),
+         rkey = recode(rkey, !!!nuts1_fix))
+
+fr_map <- fr %>% left_join(reg_counts, by = "rkey")
+# If any region stays grey, inspect fr$NAME_LATN and extend nuts1_fix above.
+```
+
+## Episodes by region
+
+```{r map-episodes, fig.height=7, eval = FALSE}
+ggplot(fr_map) +
+  geom_sf(aes(fill = episodes), color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(na.value = "grey90") +
+  coord_sf(xlim = c(1e5, 1.3e6), ylim = c(6.0e6, 7.2e6)) +   # metropolitan window
+  labs(title = "BHRe episodes by region", fill = "Episodes") +
+  theme_void(base_size = 12)
+```
+
+## Cases by region
+
+```{r map-cases, fig.height=7, eval = FALSE}
+ggplot(fr_map) +
+  geom_sf(aes(fill = cases), color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(option = "rocket", direction = -1, na.value = "grey90") +
+  coord_sf(xlim = c(1e5, 1.3e6), ylim = c(6.0e6, 7.2e6)) +
+  labs(title = "BHRe cases by region", fill = "Cases") +
+  theme_void(base_size = 12)
+```
+
+# Save summary tables
+
+```{r save, eval=FALSE}
+readr::write_csv(by_year,   here("Datasets","Output Data","bhre_by_year.csv"))
+readr::write_csv(by_region, here("Datasets","Output Data","bhre_by_region.csv"))
+readr::write_csv(by_mech,   here("Datasets","Output Data","bhre_by_mechanism.csv"))
+readr::write_csv(by_sp,     here("Datasets","Output Data","bhre_by_species.csv"))
+```
+
+# Regional, Type and Facility-Level Incidence of BHRE and CPOs
+
+```{r incidence}
+library(stringi)
+fin9 <- function(x) str_pad(str_extract(str_replace(as.character(x), "\\.0$", ""),
+                                        "[0-9]+"), 9, pad = "0")
+
+# --- flag carbapenemase-producer episodes -----------------------------------
+# carbapenemases only: KPC/NDM/VIM/IMP/IMI, the OXA-48 group, and untyped
+# "carbapénèmase" calls. Excludes GRE (Van A/B) and mcr.
+carba_detect <- function(x) {
+  if (is.na(x)) return(FALSE)
+  u <- toupper(stri_trans_general(x, "Latin-ASCII"))
+  str_detect(u, "^KPC|^NDM|^VIM|^IMP|^IMI|^OXA-48|OXA-48-LIKE|OXA-181|OXA-204|OXA-244|OXA-162|OXA-232|CARBAPENEMASE")
+}
+
+mech_all <- c("resistance_mechanism_1_1","resistance_mechanism_1_2",
+              "resistance_mechanism_2_1","resistance_mechanism_2_2",
+              "resistance_mechanism_3_1","resistance_mechanism_3_2")
+
+carba_flag <- epi %>%
+  select(ehesp_id, all_of(mech_all)) %>%
+  pivot_longer(all_of(mech_all), values_to = "m") %>%
+  filter(!is.na(m), m != "") %>%
+  mutate(carb = map_lgl(m, carba_detect)) %>%
+  group_by(ehesp_id) %>% summarise(is_carba = any(carb), .groups = "drop")
+
+epi2 <- epi %>% left_join(carba_flag, by = "ehesp_id") %>%
+  mutate(is_carba = coalesce(is_carba, FALSE))
+
+# --- cases per facility (overall + carbapenemase-only) ----------------------
+cases_fac <- epi2 %>%
+  mutate(fin = fin9(facility_finess_code)) %>%
+  group_by(fin) %>%
+  summarise(cases_all      = sum(cases),
+            cases_carba    = sum(cases[is_carba]),
+            episodes_all   = n(),
+            episodes_carba = sum(is_carba), .groups = "drop")
+
+# --- merge with patient-days and compute incidence --------------------------
+hosp <- read.csv(here("Datasets","Output Data","Enriched Facility Data","hospital_stats_los_census.csv")) %>%
+  mutate(fin = fin9(finess_geo))
+
+facility_incidence <- hosp %>%
+  select(fin, finess_geo, facility_name_capact, region, facility_type_pmsi, pt_days_total) %>%
+  left_join(cases_fac, by = "fin") %>%
+  mutate(across(c(cases_all, cases_carba, episodes_all, episodes_carba),
+                ~ coalesce(.x, 0L)),
+         inc_all_per1000   = 1000 * cases_all   / pt_days_total,   # cases / patient-days
+         inc_carba_per1000 = 1000 * cases_carba / pt_days_total) %>%
+  filter(pt_days_total > 0)
+
+
+# BHRe facilities with cases but NO patient-day denominator (dropped from the rate)
+anti_join(cases_fac, hosp, by = "fin") %>% summarise(facilities = n(), cases = sum(cases_all))
+
+# sanity: overall pooled rate vs distribution of facility rates
+facility_incidence %>%
+  summarise(pooled = 1000 * sum(cases_all) / sum(pt_days_total),
+            median_facility = median(inc_all_per1000),
+            median_carba    = median(inc_carba_per1000[cases_carba > 0]))
+# keep coordinates for the map (add if not already in facility_incidence)
+facility_incidence <- facility_incidence %>%
+  left_join(select(hosp, fin, longitude, latitude), by = "fin")
+
+# pooled incidence helper: cases / patient-days * 1000, over any grouping
+agg_inc <- function(df, ...) {
+  df %>% group_by(...) %>%
+    summarise(facilities = n(),
+              cases_all   = sum(cases_all),
+              cases_carba = sum(cases_carba),
+              pt_days     = sum(pt_days_total),
+              inc_all_per1000   = round(1000 * cases_all   / pt_days, 3),
+              inc_carba_per1000 = round(1000 * cases_carba / pt_days, 3),
+              .groups = "drop")
+  
+  
+  
+}
+```
+
+
+## Grouped Cumulative Incidence by Region
+
+```{r inc_region}
+inc_region <- agg_inc(facility_incidence, region) %>% arrange(desc(inc_all_per1000))
+knitr::kable(inc_region, caption = "Incidence per 1,000 patient-days by region",
+             subtitle = "All BHRE and Carbapenemase Producing Organisms")
+
+```
+
+
+## Plotting Facility Level Incidence by type and group
+
+
+## Grouped Incidence by Facility Type
+
+```{r inc_factype}
+inc_type <- agg_inc(facility_incidence, facility_type_pmsi) %>% arrange(desc(inc_all_per1000))
+knitr::kable(inc_type, caption = "Incidence per 1,000 patient-days by facility type")
+
+```
+
+
+## By Facility Type and Region
+
+
+```{r inc_type_reg}
+inc_type_region <- agg_inc(facility_incidence, region, facility_type_pmsi)
+
+# wide table (regions × types), overall incidence
+inc_type_region %>%
+  select(region, facility_type_pmsi, inc_all_per1000) %>%
+  tidyr::pivot_wider(names_from = facility_type_pmsi, values_from = inc_all_per1000) %>%
+  knitr::kable(caption = "Overall incidence per 1,000 patient-days by region × facility type")
+
+# heatmap
+inc_type_region %>%
+  ggplot(aes(facility_type_pmsi, forcats::fct_rev(region), fill = inc_all_per1000)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(inc_all_per1000, 2)), size = 3) +
+  scale_fill_gradientn(colours = c("#E5F5E0", "#FEE08B", "#FC8D59", "#D73027"),
+                       na.value = "grey92") +
+  labs(x = NULL, y = NULL, fill = "Incidence\n/1,000 pt-days",
+       title = "Incidence by region and facility type") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+## Facility-Level Incidence
+
+
+```{r fac_level}
+
+inc_carba_fac <- facility_incidence %>%
+  filter(pt_days_total > 0, !is.na(region))
+
+inc_carba_fac %>%
+  ggplot(aes(forcats::fct_rev(region), inc_carba_per1000)) +
+  geom_violin(fill = "#C1392B", alpha = 0.4, color = NA) +
+  geom_boxplot(width = 0.12, outlier.size = 0.5) +
+  coord_flip() +
+  labs(x = NULL, y = "Carbapenemase incidence / 1,000 patient-days",
+       title = "Facility carbapenemase incidence by region") +
+  theme_minimal(base_size = 12)
+
+
+inc_carba_fac %>%
+  ggplot(aes(fct_reorder(facility_type_pmsi, inc_carba_per1000, median),
+             inc_carba_per1000)) +
+  geom_violin(fill = "#C1392B", alpha = 0.4, color = NA) +
+  geom_boxplot(width = 0.12, outlier.size = 0.5) +
+  coord_flip() +
+  labs(x = NULL, y = "Carbapenemase incidence / 1,000 patient-days",
+       title = "Facility carbapenemase incidence by facility type") +
+  theme_minimal(base_size = 12)
+```
+
+## Mapping Facility-Level Incidence Over the Map of France
+```{r map_inc}
+library(sf); library(giscoR)
+fr <- gisco_get_nuts(country = "FR", nuts_level = 1, year = "2021", resolution = "20")
+
+map_carba <- facility_incidence %>%
+  filter(!is.na(longitude), !is.na(latitude),
+         is.finite(inc_carba_per1000), inc_carba_per1000 > 0)
+
+ggplot() +
+  geom_sf(data = fr, fill = "grey96", color = "grey75", linewidth = 0.2) +
+  geom_point(data = map_carba,
+             aes(longitude, latitude, size = inc_carba_per1000),
+             color = "#C1392B", alpha = 0.75) +
+  scale_size_area(max_size = 12, name = "Carbapenemase\n/1,000 pt-days") +
+  coord_sf(xlim = c(-5, 10), ylim = c(41, 51.5)) +
+  labs(title = "Facility carbapenemase incidence per 1,000 patient-days") +
+  theme_void(base_size = 12)
+```
+
+
+```{r map-Factype}
+map_carba <- facility_incidence %>%
+  filter(!is.na(longitude), !is.na(latitude),
+         is.finite(inc_carba_per1000), inc_carba_per1000 > 0,
+         !is.na(facility_type_pmsi))
+ggplot() +
+  geom_sf(data = fr, fill = "grey96", color = "grey75", linewidth = 0.2) +
+  geom_point(data = map_carba,
+             aes(longitude, latitude,
+                 size = inc_carba_per1000, fill = facility_type_pmsi),
+             shape = 21, color = "white", stroke = 0.3, alpha = 0.85) +
+  scale_size_area(max_size = 12, name = "Incidence\n/1,000 pt-days") +
+  scale_fill_brewer(palette = "Set1", name = "Facility type") +
+  coord_sf(xlim = c(-5, 10), ylim = c(41, 51.5)) +
+  labs(title = "Carbapenemase incidence and facility type") +
+  theme_void(base_size = 12) +
+  guides(
+    size = guide_legend(order = 1, override.aes = list(fill = "grey40", shape = 21)),
+    fill = guide_legend(order = 2, override.aes = list(size = 5))
+  )
+```
+
+
+## final Notes
+- **Cases** default to 1 when `n_total_if_secondary_cases` is missing, so cases ≥
+  episodes by construction.
+- **Facility type** uses `params$facility_type_col` (`r params$facility_type_col`);
+  switch to `hospital_type` for the MCO / SSR / MCO-SSR care grouping.
+- Mechanism and species breakdowns count an episode under **each** family/species
+  it carries, so those totals can exceed the overall episode count.
+- Regions failing to match the map (e.g. overseas territories not in the
+  metropolitan window) appear grey; adjust `region_key()` or the `coord_sf`
+  window if needed.

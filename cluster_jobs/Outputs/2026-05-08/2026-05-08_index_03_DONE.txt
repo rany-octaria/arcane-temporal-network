@@ -1,0 +1,6 @@
+Job finished on  : 2026-05-08 13:41:54.949751
+Indexcode        : 3
+Rows saved       : 400
+Output file      : 2026-05-08_beta_calibration_runs_index_03.rds
+Root dir         : /media/kevinNFS2/rany
+Working dir      : /media/kevinNFS2/rany/cluster_jobs

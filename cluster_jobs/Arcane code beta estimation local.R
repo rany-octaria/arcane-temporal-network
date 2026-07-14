@@ -57,6 +57,11 @@ message("OUTPUT_DIR = ", output_dir)
 coords_beds_active <- readRDS(file.path(data_dir, "coords_beds_active.RDS"))
 weekly_transfers   <- readRDS(file.path(data_dir, "weekly.RDS"))
 
+
+# Convert rolling sum to rolling average — divide weights by 7
+weekly_transfers <- weekly_transfers %>%
+  mutate(weight = pmax(1L, as.integer(round(weight / 7))))
+
 # ============================================================
 # 3. BUILD HOSPITAL UNIVERSE
 # ============================================================

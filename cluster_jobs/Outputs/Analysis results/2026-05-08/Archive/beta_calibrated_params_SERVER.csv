@@ -1,0 +1,4 @@
+amr_tier,description,prev_range,n_reps,beta_median,beta_mean,beta_q25,beta_q75,beta_iqr,beta_ci95_lo,beta_ci95_hi,prev_median,prev_mean,prev_q25,prev_q75
+Low,"CPE/CRE (N/W EU), VRE (N. EU nursing homes), CRAB",0%–2%,753,0.01,0.012328,0.005,0.017,0.012,0.011662,0.012994,0,0.001973,0,0.001119
+Mid,"MRSA (N/W EU wards/ICU), VRE (DE/IT), ESBL-E (NL/Nordic)",2%–10%,174,0.017,0.018385,0.015,0.02,0.005,0.01752,0.01925,0.054374,0.05472,0.033864,0.071326
+High,"ESBL-E (CH/BE/FR), MRSA (S/E EU), MDRO nursing homes",10%–40%,245,0.023,0.024273,0.021,0.026,0.005,0.023628,0.024919,0.218375,0.227288,0.160723,0.286502

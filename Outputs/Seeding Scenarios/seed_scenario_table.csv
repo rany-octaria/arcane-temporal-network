@@ -1,0 +1,7 @@
+Seeding Rule,Hospital ID,Hospital Type,MCO Beds,In-degree,Out-degree,Out-strength,Betweenness,Note
+highest_betweenness,030000061,MCO/SSR,28,41,57,"6,950",2,
+highest_in_degree + highest_out_degree + largest_outgoing,750100125,MCO/SSR,413,420,433,"49,762",0,Same hospital as multiple rules (merged)
+largest_beds,940000573,MCO/SSR,2414,122,130,"13,468",0,
+random_MCO,drawn per replicate,MCO,—,—,—,—,—,Random draw from NA hospitals each rep
+random_SSR,drawn per replicate,SSR,—,—,—,—,—,Random draw from NA hospitals each rep
+random_MCO_SSR,drawn per replicate,MCO,—,—,—,—,—,Random draw from NA hospitals each rep

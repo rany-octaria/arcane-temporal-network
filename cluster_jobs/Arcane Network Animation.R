@@ -48,8 +48,25 @@ SS_SLOPE_TOL <- 0.00001  # max allowed slope of prevalence in window
 ANIM_EVERY_N_DAYS <- 2   # sample one frame every 2 simulated days
 ANIM_FPS          <- 9   # 9fps × ~548 frames ≈ 61 seconds
 
-# Node sizes — proportional to hospital bed count, 3× original
+# Node sizes — proportional to hospital bed count
 NODE_SIZE_RANGE <- c(1.2, 13)
+
+# ── MASTER TEXT SCALE ────────────────────────────────────────
+# Change BASE_TEXT to scale ALL text in every plot at once.
+# Every other size is a fixed multiple of this one value.
+BASE_TEXT <- 12   # ← change only this number
+
+# Derived text sizes — do not edit individually
+SIZE_TITLE        <- BASE_TEXT * 2.3   # main plot title
+SIZE_SUBTITLE     <- BASE_TEXT * 1.7   # subtitle / date in GIF
+SIZE_CAPTION      <- BASE_TEXT * 1.1   # caption below plot
+SIZE_LEGEND_TITLE <- BASE_TEXT * 1.2   # legend header
+SIZE_LEGEND_TEXT  <- BASE_TEXT * 1   # legend tick labels
+SIZE_DATE_STAMP   <- BASE_TEXT * 1.5   # date stamp on map (top left)
+SIZE_STATS        <- BASE_TEXT * 0.6   # stats annotation (bottom left)
+SIZE_PANEL_TITLE  <- BASE_TEXT * 2.5   # panel grid title
+SIZE_PANEL_DATE   <- BASE_TEXT * 0.45  # date inside each panel cell
+SIZE_PANEL_STATS  <- BASE_TEXT * 0.27  # stats inside each panel cell
 
 # Colour tokens — light background theme
 BG_COLOR      <- "#F5F7FA"   # slide background
@@ -347,19 +364,24 @@ france <- ne_countries(country = "france", scale = "medium",
 
 map_theme <- theme_void(base_family = "sans") +
   theme(
-    plot.background  = element_rect(fill = BG_COLOR, color = NA),
-    panel.background = element_rect(fill = BG_COLOR, color = NA),
-    legend.position  = c(0.92, 0.25),
-    legend.title     = element_text(color = TEXT_DARK, size = 36, face = "bold"),
-    legend.text      = element_text(color = TEXT_SOFT, size = 30),
-    legend.key.size  = unit(1.2, "cm"),
-    plot.title       = element_text(color = TEXT_DARK, size = 22, face = "bold",
-                                    hjust = 0.5, margin = margin(t = 12, b = 4)),
-    plot.subtitle    = element_text(color = "#1B6CA8", size = 36,
-                                    hjust = 0.5, margin = margin(b = 6)),
-    plot.caption     = element_text(color = TEXT_SOFT, size = 28,
-                                    hjust = 0.5, margin = margin(t = 6, b = 8)),
-    plot.margin      = margin(10, 10, 10, 10)
+    plot.background      = element_rect(fill = BG_COLOR, color = NA),
+    panel.background     = element_rect(fill = BG_COLOR, color = NA),
+    # Legend placed outside the right edge of the map — no overlap with France
+    legend.position      = "right",
+    legend.justification = "left",
+    legend.margin        = margin(l = 20, r = 10),
+    legend.title         = element_text(color = TEXT_DARK, size = SIZE_LEGEND_TITLE,
+                                        face = "bold", lineheight = 1.2),
+    legend.text          = element_text(color = TEXT_SOFT, size = SIZE_LEGEND_TEXT),
+    legend.key.size      = unit(1.2, "cm"),
+    plot.title           = element_text(color = TEXT_DARK, size = SIZE_TITLE,
+                                        face = "bold", hjust = 0.5,
+                                        margin = margin(t = 12, b = 4)),
+    plot.subtitle        = element_text(color = "#1B6CA8", size = SIZE_SUBTITLE,
+                                        hjust = 0.5, margin = margin(b = 6)),
+    plot.caption         = element_text(color = TEXT_SOFT, size = SIZE_CAPTION,
+                                        hjust = 0.5, margin = margin(t = 6, b = 8)),
+    plot.margin          = margin(10, 10, 10, 10)
   )
 
 # ============================================================
@@ -454,14 +476,14 @@ make_frame <- function(day_data, date_val,
     # Date stamp — top left
     annotate("text", x = -5.1, y = 51.0,
              label    = format(as.Date(date_val), "%d %b %Y"),
-             color    = TEXT_DARK, size = 10, fontface = "bold", hjust = 0) +
+             color    = TEXT_DARK, size = SIZE_DATE_STAMP, fontface = "bold", hjust = 0) +
     
     # Stats annotation — bottom left
     annotate("text", x = -5.1, y = 41.7,
              label = sprintf(
                "%d hospitals with cases (%.1f%% of network)\nNetwork prevalence: %.2f%%",
                n_cases, 100 * n_cases / n_total, 100 * net_prev),
-             color = TEXT_SOFT, size = 6.5, hjust = 0, lineheight = 1.5) +
+             color = TEXT_SOFT, size = SIZE_STATS, hjust = 0, lineheight = 1.5) +
     
     # Lock axes to mainland France — prevents per-frame rescaling
     coord_sf(xlim = c(-5.5, 9.6), ylim = c(41.0, 51.5), expand = FALSE) +
@@ -572,15 +594,15 @@ make_panel_frame <- function(day_data, date_val, show_legend = FALSE) {
                               title.position = "top")
     ) +
     scale_size_continuous(range = NODE_SIZE_RANGE, guide = "none") +
-    # Date stamp — bold, top-left inside each panel
+    # Date stamp — bold, top-left inside each panel (size = SIZE_PANEL_DATE)
     annotate("text", x = -5.0, y = 51.0,
              label = format(as.Date(date_val), "%d %b %Y"),
-             color = TEXT_DARK, size = 5, fontface = "bold", hjust = 0) +
-    # Compact stats — bottom-left inside each panel
+             color = TEXT_DARK, size = SIZE_PANEL_DATE, fontface = "bold", hjust = 0) +
+    # Compact stats — bottom-left inside each panel (size = SIZE_PANEL_STATS)
     annotate("text", x = -5.0, y = 41.8,
              label = sprintf("%d hospitals (%.1f%%)\nPrevalence: %.2f%%",
                              n_cases, 100 * n_cases / n_total, 100 * net_prev),
-             color = TEXT_SOFT, size = 2.8, hjust = 0, lineheight = 1.4) +
+             color = TEXT_SOFT, size = SIZE_PANEL_STATS, hjust = 0, lineheight = 1.4) +
     coord_sf(xlim = c(-5.5, 9.6), ylim = c(41.0, 51.5), expand = FALSE) +
     theme_void() +
     theme(
@@ -588,9 +610,9 @@ make_panel_frame <- function(day_data, date_val, show_legend = FALSE) {
       plot.background  = element_rect(fill = BG_COLOR,
                                       color = "black", linewidth = 1.8),
       panel.background = element_rect(fill = BG_COLOR, color = NA),
-      legend.position  = if (show_legend) c(1.12, 0.5) else "none",
-      legend.title     = element_text(color = TEXT_DARK, size = 22, face = "bold"),
-      legend.text      = element_text(color = TEXT_SOFT, size = 18),
+      legend.position  = if (show_legend) c(1.2, 0.5) else "none",
+      legend.title     = element_text(color = TEXT_DARK, size = SIZE_LEGEND_TITLE, face = "bold"),
+      legend.text      = element_text(color = TEXT_SOFT, size = SIZE_LEGEND_TEXT),
       plot.margin      = margin(6, 6, 6, 6)  # space so the border shows clearly
     )
 }
@@ -607,7 +629,7 @@ panel_grid <- wrap_plots(panel_plots, ncol = 3, nrow = 2) +
   plot_annotation(
     title = "ARB Spread Across the French Hospital Network",
     theme = theme(
-      plot.title      = element_text(size = 28, face = "bold",
+      plot.title      = element_text(size = SIZE_PANEL_TITLE, face = "bold",
                                      hjust = 0.5, color = TEXT_DARK,
                                      margin = margin(b = 14)),
       plot.background = element_rect(fill = BG_COLOR, color = NA)
@@ -616,7 +638,7 @@ panel_grid <- wrap_plots(panel_plots, ncol = 3, nrow = 2) +
 
 panel_fname <- file.path(output_dir, sprintf("network_panel_6snapshots_%s.png", beta_tag))
 ggsave(panel_fname, panel_grid,
-       width = 24, height = 16, dpi = 200, bg = BG_COLOR)
+       width = 28, height = 16, dpi = 200, bg = BG_COLOR)
 message("Panel saved: ", basename(panel_fname))
 
 # ============================================================

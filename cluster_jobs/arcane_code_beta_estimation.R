@@ -69,6 +69,11 @@ message("WD = ", getwd())
 coords_beds_active <- readRDS(file.path(data_dir, "coords_beds_active.RDS"))
 weekly_transfers   <- readRDS(file.path(data_dir, "weekly.RDS"))
 
+# Convert rolling sum to rolling daily average (divide by 7)
+# pmax(1L, ...) ensures no edge drops to 0 after rounding
+weekly_transfers <- weekly_transfers %>%
+  mutate(weight = pmax(1L, as.integer(round(weight / 7))))
+
 # ============================================================
 # 3. BUILD HOSPITAL UNIVERSE
 # ============================================================
@@ -313,12 +318,19 @@ detect_steady_state <- function(overall_results,
   if (nrow(traj) < window_size) return(tibble(steady_state_reached = FALSE))
   
   last  <- traj %>% slice_tail(n = window_size) %>% mutate(t = row_number())
-  range <- max(last$overall_prevalence) - min(last$overall_prevalence)
-  slope <- coef(lm(overall_prevalence ~ t, data = last))[2]
+  
+  # Guard: if prevalence is all NA in the window return FALSE gracefully
+  if (all(is.na(last$overall_prevalence)))
+    return(tibble(steady_state_reached = FALSE))
+  
+  range <- max(last$overall_prevalence, na.rm = TRUE) -
+    min(last$overall_prevalence, na.rm = TRUE)
+  slope <- coef(lm(overall_prevalence ~ t, data = last,
+                   na.action = na.omit))[2]
   
   tibble(
     steady_state_reached     = range <= range_tol && abs(slope) <= slope_tol,
-    steady_state_prevalence  = median(last$overall_prevalence),
+    steady_state_prevalence  = median(last$overall_prevalence, na.rm = TRUE),
     steady_state_day         = max(last$date),
     steady_state_range       = range,
     steady_state_slope       = slope

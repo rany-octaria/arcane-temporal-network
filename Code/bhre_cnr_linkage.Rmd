@@ -1,0 +1,389 @@
+---
+title: "Matching BHRe episodes to CNR laboratory records"
+subtitle: "A step-by-step linkage report"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    theme: flatly
+    df_print: paged
+params:
+  tol_months: 1
+  date_fallback_form_issue: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 7, fig.height = 4)
+library(here)
+knitr::opts_knit$set(root.dir = here::here())   # run from the project root, not this file's folder
+library(dplyr); library(tidyr); library(stringr); library(purrr)
+library(lubridate); library(stringi); library(readr); library(readxl)
+library(ggplot2); library(knitr); library(scales)
+```
+
+# What this report does
+
+We have two separate datasets that describe the same real-world events from two
+angles, but they share **no common ID number**:
+
+- **BHRe episodes** — each row is a hospital *episode* reported to the national
+  surveillance system (e-SIN). It tells us the hospital, the dates, the bacteria
+  and its resistance mechanism, and whether the strain was sent to a national
+  reference laboratory.
+- **CNR records** — each row is a single *bacterial strain* that a hospital sent
+  to the reference laboratory (CNR), where it was sequenced in detail.
+
+Our goal is to figure out, for each BHRe episode, **which CNR strain(s) it
+corresponds to**. Because there is no shared ID, we match on the information the
+two datasets *do* have in common — when the strain was sent, what resistance
+mechanism it has, and which hospital it came from. Since no single clue is
+perfect, every match we keep is labelled with a **confidence level** (High or
+Medium; weak "Low" matches are thrown away).
+
+# Load the data
+
+Three files are read in. `nodes` is a reference table that lets us look up a
+hospital's **name and town** from its FINESS code (the BHRe episode file itself
+does not contain the hospital name).
+
+```{r load}
+nodes <- readRDS(here("Datasets","Cleaned Model Input Data","node_attributes_enriched.RDS")) %>%
+  mutate(finess_geo = as.numeric(finess_geo)) %>%
+  filter(!is.na(finess_geo))
+
+cnr  <- read_excel(here("Datasets","Output Data",
+                        "CNR_2023_2024_DEIDENTIFIED_shareable_EN_clean.xlsx"))
+
+bhre <- read.csv(here("Datasets","Sante Publique","Cleaned","bhre_2024_hosp.csv"))
+bhre <- bhre[, 1:84] 
+
+
+
+# keep only the original BHRe episode columns
+```
+
+```{r helpers, echo=FALSE}
+#Months Tolerance
+tol_months <- params$tol_months
+EPC_LAB <- "CNR des ent\u00e9robact\u00e9ries productrices de carbap\u00e9n\u00e8mases (EPC) au Kremlin-Bic\u00eatre"
+
+ym_int        <- function(y, m) as.integer(y) * 12L + as.integer(m)   # a month-of-history index
+strip_accents <- function(x) stri_trans_general(as.character(x), "Latin-ASCII")
+has_overlap   <- function(a, b) length(intersect(a, b)) > 0
+# turn a FINESS code into a clean 9-digit string (keeps leading zeros)
+fin9 <- function(x) str_pad(str_extract(str_replace(as.character(x), "\\.0$", ""),
+                                        "[0-9]+"), 9, pad = "0")
+
+# Map a detailed mechanism name to its broad gene "family".
+# All the OXA-48-type variants are grouped together; the rest go by prefix.
+oxa48_like <- c("OXA-48","OXA-48-LIKE","OXA-181","OXA-204","OXA-244","OXA-162",
+                "OXA-232","OXA-484","OXA-163","OXA-245","OXA-370","OXA-405")
+carb_family_one <- function(x) {
+  x <- toupper(trimws(x))
+  if (is.na(x) || x %in% c("", "-")) return(NA_character_)
+  if (x %in% oxa48_like || str_starts(x, "OXA-48")) return("OXA48")
+  for (p in c("KPC","NDM","VIM","IMP","IMI","GES")) if (str_starts(x, p)) return(p)
+  NA_character_
+}
+families_of <- function(x) unique(na.omit(map_chr(str_trim(str_split(x, "\\+")[[1]]),
+                                                  carb_family_one)))
+variants_of <- function(x) unique(toupper(str_trim(str_split(x, "\\+")[[1]])))
+
+# Break a hospital/town name into meaningful words, dropping generic words
+# like "CH", "HOPITAL", "CENTRE" so they can't cause false matches.
+place_stop <- c("CH","CHU","CHR","CHG","CHIC","CHS","GH","GHT","HL","HOP","HOPITAL",
+  "HOPITAUX","CENTRE","HOSPITALIER","HOSPITALIERE","CLINIQUE","POLYCLINIQUE","GROUPE",
+  "GROUPEMENT","DE","DU","DES","LA","LE","LES","SUR","ET","SAINT","ST","STE","SAINTE",
+  "EHPAD","SSR","MCO","HAD","PSY")
+
+tokenize_place <- function(x) {
+  x <- str_squish(str_replace_all(toupper(strip_accents(x)), "[^A-Z0-9]", " "))
+  map(str_split(x, " "), ~ unique(.x[nchar(.x) >= 3 & !.x %in% place_stop]))
+}
+
+mech_cols <- paste0("resistance_mechanism_", c("1_1","1_2","2_1","2_2","3_1","3_2"))
+```
+
+# Step 1 — Add the hospital name and town to each episode
+
+The BHRe file has a FINESS code but no hospital name or town. We use the `nodes`
+reference table to attach both, matching on the FINESS code.
+
+```{r attach}
+place_lu <- nodes %>%
+  transmute(fin = fin9(finess_geo), facility_name_capact, city) %>%
+  filter(!is.na(fin)) %>%
+  distinct(fin, .keep_all = TRUE)
+
+bhre <- bhre %>%
+  mutate(fin = fin9(facility_finess_code)) %>%
+  left_join(place_lu, by = "fin")
+
+
+```
+
+# Step 2 — Keep only episodes sent to the EPC reference lab
+
+The `cnr_referral` field records *which* reference lab a strain was sent to. Only
+strains sent to the **EPC carbapenemase CNR (Kremlin-Bicêtre)** appear in our CNR
+dataset, so we keep only those episodes. Strains sent elsewhere (for example the
+enterococci lab in Rennes) cannot possibly be in this CNR file, so they are set
+aside.
+
+```{r population}
+n_epc <- sum(bhre$cnr_referral == EPC_LAB, na.rm = TRUE)
+epc <- bhre %>% filter(cnr_referral == EPC_LAB)
+```
+
+**`r n_epc`** episodes were sent to the EPC CNR.
+
+# Step 3 — Work out the clues we will match on (BHRe side)
+
+For every episode we prepare the pieces of information used for matching:
+
+- **When it was sent** — the date the strain was referred to the CNR
+  (`cnr_referral_date`). This is the right date to use because the CNR's
+  `sample_month`/`sample_year` are actually the **date the strain was received**
+  at the lab, which lines up with the referral date, not the original sampling
+  date.
+- **The resistance mechanism** — both the broad family (e.g. NDM, VIM, OXA-48
+  group) and the exact variant (e.g. NDM-5).
+- **The hospital's department** — the first two digits of its FINESS code.
+- **The hospital name and town** — broken into meaningful words for name-matching.
+
+```{r bhre-keys}
+epc <- epc %>%
+  mutate(
+    ref_date = if (isTRUE(params$date_fallback_form_issue))
+                 coalesce(as.Date(cnr_referral_date), as.Date(form_issue_date))
+               else as.Date(cnr_referral_date),
+    ref_ym    = ym_int(year(ref_date), month(ref_date)),
+    bhre_dept = str_sub(fin, 1, 2),
+    bhre_mech = pmap_chr(select(., all_of(mech_cols)),
+                         ~ paste(sort(unique(toupper(na.omit(c(...))))), collapse = " | ")),
+    bhre_var  = pmap(select(., all_of(mech_cols)), ~ toupper(na.omit(unique(c(...))))),
+    bhre_fam  = map(bhre_var, ~ unique(na.omit(map_chr(.x, carb_family_one)))),
+    name_tok  = tokenize_place(facility_name_capact),
+    city_tok  = tokenize_place(city)
+  )
+
+n_have_refdate <- sum(!is.na(as.Date(epc$cnr_referral_date)))
+bhre_prep <- epc %>% filter(!is.na(ref_ym), lengths(bhre_fam) > 0)
+n_keyed <- n_distinct(bhre_prep$ehesp_id)
+```
+
+**Important coverage point.** A referral date is only recorded for
+**`r n_have_refdate`** of the `r n_epc` referred episodes
+(`r percent(n_have_refdate / n_epc, 1)`). Episodes with no referral date cannot be
+placed in time and are dropped. After also requiring a recognised carbapenemase
+family, **`r n_keyed`** episodes are ready to match. (If you would rather fill the
+gap, set `params$date_fallback_form_issue = TRUE` to use the form-submission date
+when the referral date is missing.)
+
+# Step 4 — Prepare the same clues on the CNR side
+
+We do the equivalent on the CNR records. One record can list two mechanisms
+("NDM-5 + OXA-48"); we split these so the record counts under both families.
+
+```{r cnr-keys}
+cnr_prep <- cnr %>%
+  filter(!is_environment %in% TRUE) %>%                 # ignore environmental swabs
+  mutate(
+    cnr_ym   = ym_int(2000L + as.integer(sample_year), as.integer(sample_month)),
+    cnr_dept = coalesce(str_sub(str_extract(as.character(department_code), "[0-9]+"), 1, 2),
+                        str_sub(str_extract(as.character(zip_code_facility), "[0-9]+"), 1, 2)),
+    cnr_name_tok = tokenize_place(facility_name),
+    cnr_var  = map(sequencing, variants_of),
+    family   = map(sequencing, families_of)
+  ) %>%
+  filter(lengths(family) > 0, !is.na(cnr_ym)) %>%
+  unnest(family)
+```
+
+# Step 5 — Make the match and score it
+
+**The rule for proposing a match:** an episode and a CNR record are only paired if
+they have the **same mechanism family** *and* the referral month is **within
+±`r tol_months` month** of the CNR receipt month. This is the non-negotiable
+minimum.
+
+**Scoring the strength of a match:** on top of that, we add points for extra
+agreement. The more independent clues line up, the higher the score.
+
+| Extra agreement                         | Points |
+|-----------------------------------------|:------:|
+| exact mechanism variant matches         |   2    |
+| hospital **name** matches (tier 1)      |   3    |
+| hospital name matches the **town** (tier 2) | 2  |
+| same department                         |   1    |
+| exact same month                        |   1    |
+
+**Confidence:** `High` = 4 points or more; `Medium` = 2–3; `Low` = 1 or less.
+Low matches are removed.
+
+```{r join-score}
+bhre_keyed <- bhre_prep %>%
+  mutate(ym = map(ref_ym, ~ seq(.x - tol_months, .x + tol_months))) %>%
+  select(ehesp_id, ref_date, ref_ym, bhre_dept, city, facility_name_capact,
+         bhre_mech, bhre_var, name_tok, city_tok, family = bhre_fam, ym) %>%
+  unnest(family) %>% unnest(ym)
+
+candidates <- bhre_keyed %>%
+  inner_join(cnr_prep, by = c("family", "ym" = "cnr_ym"),
+             relationship = "many-to-many") %>%
+  mutate(
+    month_exact   = ym == ref_ym,
+    variant_exact = map2_lgl(bhre_var, cnr_var, has_overlap),
+    dept_match    = !is.na(bhre_dept) & !is.na(cnr_dept) & bhre_dept == cnr_dept,
+    name_t1 = map2_lgl(cnr_name_tok, name_tok, has_overlap),   # CNR name vs hospital name
+    name_t2 = map2_lgl(cnr_name_tok, city_tok, has_overlap),   # CNR name vs town
+    name_tier  = case_when(name_t1 ~ "tier1_name", name_t2 ~ "tier2_city", TRUE ~ NA_character_),
+    name_score = case_when(name_t1 ~ 3L, name_t2 ~ 2L, TRUE ~ 0L),
+    score = 2L*variant_exact + name_score + dept_match + month_exact,
+    confidence = case_when(score >= 4 ~ "High", score >= 2 ~ "Medium", TRUE ~ "Low") %>%
+                 factor(levels = c("High","Medium","Low")),
+    match_keys = pmap_chr(list(variant_exact, name_tier, dept_match, month_exact),
+      function(v,nt,d,m) paste(c("family+month", if (v) "variant",
+        if (!is.na(nt)) nt, if (d) "dept", if (m) "exact-month")[c(TRUE,v,!is.na(nt),d,m)],
+        collapse="+"))
+  )
+```
+
+# Step 6 — Keep the best match(es) per episode
+
+For each episode we keep its highest-scoring CNR record(s) and drop anything that
+only reached Low confidence. **An episode is allowed to match several CNR
+records** — this is expected and correct, because a hospital often sends several
+strains to the CNR in the same month and there is no patient-level key to single
+one out.
+
+```{r best}
+bhre_cnr_matches <- candidates %>%
+  group_by(ehesp_id) %>% mutate(is_best = score == max(score)) %>%
+  filter(is_best, confidence != "Low") %>% ungroup() %>%
+  transmute(ehesp_id, patient_id, specimen_id, confidence, score, name_tier, match_keys,
+            ref_date, family, bhre_mech, cnr_sequencing = sequencing,
+            bhre_facility_name = facility_name_capact, cnr_facility_name = facility_name,
+            bhre_city = city, bhre_dept, cnr_dept,
+            cnr_sample_month = sample_month, cnr_sample_year = sample_year,
+            cnr_species = species)
+
+episode_methods <- bhre_cnr_matches %>%
+  group_by(ehesp_id) %>%
+  summarise(confidence = first(confidence),
+            name_method = case_when(
+              any(name_tier == "tier1_name", na.rm = TRUE) ~ "tier1_name",
+              any(name_tier == "tier2_city", na.rm = TRUE) ~ "tier2_city",
+              TRUE ~ "none_no_name"),
+            used_variant = any(str_detect(match_keys, "variant")),
+            used_dept    = any(str_detect(match_keys, "dept")),
+            used_month   = any(str_detect(match_keys, "exact-month")),
+            n_cnr_specimens = n_distinct(specimen_id), .groups = "drop")
+```
+
+# Results
+
+## How many episodes matched
+
+```{r r1}
+n_matched <- n_distinct(bhre_cnr_matches$ehesp_id)
+tibble(step = c("Episodes sent to the EPC CNR",
+                "Ready to match (had a referral date and a known mechanism)",
+                "Matched (High or Medium; Low removed)",
+                "   - High confidence",
+                "   - Medium confidence"),
+       episodes = c(n_epc, n_keyed, n_matched,
+                    sum(episode_methods$confidence == "High"),
+                    sum(episode_methods$confidence == "Medium"))) %>%
+  kable(caption = "Episodes through the matching pipeline")
+```
+
+## Which method carried each match
+
+Each matched episode is credited to the strongest hospital clue it used: the
+hospital **name** (tier 1), the **town** (tier 2), or **neither** (matched on
+family + department + month only).
+
+```{r r2}
+episode_methods %>%
+  mutate(name_method = recode(name_method,
+    tier1_name  = "Matched on hospital name",
+    tier2_city  = "Matched on town",
+    none_no_name= "No name clue (family + dept + month)")) %>%
+  count(name_method, confidence) %>%
+  pivot_wider(names_from = confidence, values_from = n, values_fill = 0) %>%
+  kable(caption = "How each episode's best match was made")
+```
+
+```{r r2plot, echo=FALSE}
+episode_methods %>%
+  mutate(name_method = recode(name_method,
+    tier1_name  = "Hospital name",
+    tier2_city  = "Town",
+    none_no_name= "No name clue")) %>%
+  count(name_method, confidence) %>%
+  ggplot(aes(reorder(name_method, n), n, fill = confidence)) +
+  geom_col() + coord_flip() +
+  labs(x = NULL, y = "episodes", fill = NULL,
+       title = "Matches by the clue that carried them") +
+  theme_minimal(base_size = 12)
+```
+
+## Which clues were used
+
+```{r r3}
+tibble(clue = c("Exact mechanism variant", "Same department", "Exact same month"),
+       episodes_using_it = c(sum(episode_methods$used_variant),
+                             sum(episode_methods$used_dept),
+                             sum(episode_methods$used_month))) %>%
+  kable(caption = paste0("Of the ", n_matched,
+        " matched episodes, how many used each clue (all also matched family + month)"))
+```
+
+## One episode can match several strains
+
+```{r r4}
+tibble(measure = c("Episodes matching exactly one CNR strain",
+                   "Episodes matching more than one CNR strain",
+                   "Different CNR strains linked in total",
+                   "Total episode-strain pairs kept",
+                   "Typical (median) strains per episode"),
+       value = c(sum(episode_methods$n_cnr_specimens == 1),
+                 sum(episode_methods$n_cnr_specimens > 1),
+                 n_distinct(bhre_cnr_matches$specimen_id),
+                 nrow(bhre_cnr_matches),
+                 median(episode_methods$n_cnr_specimens))) %>%
+  kable(caption = "Match multiplicity (this is expected, not an error)")
+```
+
+## A look at some High-confidence matches
+
+```{r r5}
+bhre_cnr_matches %>% filter(confidence == "High") %>%
+  select(ref_date, family, bhre_mech, cnr_sequencing,
+         bhre_facility_name, cnr_facility_name, bhre_city, match_keys) %>%
+  head(10)
+```
+
+# Save the results
+
+```{r write, eval=FALSE}
+write_csv(bhre_cnr_matches, here("Datasets","Output Data","bhre_cnr_matches.csv"))
+write_csv(episode_methods,  here("Datasets","Output Data","bhre_cnr_episode_methods.csv"))
+```
+
+# Things to keep in mind
+
+- Using the **referral date** is the correct choice, but it is missing for a large
+  share of episodes, which is why the matched total is smaller than the number of
+  referred episodes. The coverage figures above make this explicit.
+- Matches with **no name clue** rely on family + department + month only. These
+  are the weakest of the kept matches (mostly 2023 CNR records, which carry no
+  hospital name). If you need higher certainty, consider requiring an exact
+  variant or a name match for those.
+- **Department** is a broad clue (about 100 nationwide): it supports a match but
+  cannot pin one down on its own.

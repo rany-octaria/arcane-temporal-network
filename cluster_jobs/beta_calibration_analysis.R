@@ -28,7 +28,7 @@ library(scales)
 # 0. CONFIG
 # ============================================================
 
-run_date  <- "2026-05-05"
+run_date  <- "2026-05-10"
 
 # Toggle: TRUE = local run output, FALSE = cluster sharded RDS files
 USE_LOCAL <- FALSE
@@ -243,9 +243,9 @@ print(beta_summary, n = Inf)
 
 amr_tiers <- tribble(
   ~amr_tier, ~description,                                               ~prev_min, ~prev_max,
-  "Low",     "CPE/CRE, VRE, CRAB",       0.000,     0.020,
-  "Mid",     "MRSA, VRE , ESBL (Nordic/NL)", 0.020,    0.100,
-  "High",    "ESBL , MRSA, ARB in nursing homes",    0.100,     0.400
+  "Low",     "CPE/CRE (N/W EU), VRE (N. EU nursing homes), CRAB",       0.000,     0.020,
+  "Mid",     "MRSA (N/W EU wards/ICU), VRE (DE/IT), ESBL-E (NL/Nordic)", 0.020,    0.100,
+  "High",    "ESBL-E (CH/BE/FR), MRSA (S/E EU), MDRO nursing homes",    0.100,     0.400
 ) %>%
   mutate(amr_tier = factor(amr_tier, levels = c("Low", "Mid", "High")))
 
@@ -256,16 +256,17 @@ amr_tiers <- tribble(
 beta_final_tiered <- beta_calibration_final %>%
   mutate(
     amr_tier = case_when(
-      final_overall_prevalence <  0.020                                    ~ "Low",
-      final_overall_prevalence >= 0.020 & final_overall_prevalence < 0.100 ~ "Mid",
-      final_overall_prevalence >= 0.100                                    ~ "High",
+      final_overall_prevalence <  0.020                                         ~ "Low",
+      final_overall_prevalence >= 0.020 & final_overall_prevalence <  0.100    ~ "Mid",
+      # High tier: no upper cap — full range above 10%
+      final_overall_prevalence >= 0.100                                         ~ "High",
       TRUE ~ NA_character_
     ),
     amr_tier = factor(amr_tier, levels = c("Low", "Mid", "High"))
   ) %>%
   filter(!is.na(amr_tier))
 
-message("\n--- Rep count per tier ---")
+message("\n--- Rep count per tier (High tier: full range >= 10%) ---")
 beta_final_tiered %>% count(amr_tier) %>% print()
 
 # ============================================================
@@ -314,6 +315,45 @@ beta_agnostic_summary %>%
   print()
 
 # ============================================================
+# 10b. CALIBRATED BETA PARAMETERS — CLEAN DATAFRAME
+#      This is the primary output for downstream modelling steps.
+#      One row per tier, containing:
+#        - beta_median  : point estimate to use as the reference beta
+#        - beta_mean    : alternative central estimate
+#        - beta_q25/q75 : IQR — plausible range for sensitivity analyses
+#        - beta_ci95_lo/hi : 95% CI for uncertainty propagation
+#        - prev_median  : median steady-state prevalence achieved
+#      High tier covers the full range (>= 10%, no upper cap).
+# ============================================================
+
+beta_calibrated_params <- beta_agnostic_summary %>%
+  transmute(
+    amr_tier,
+    description,
+    prev_range        = sprintf("%.0f%%–%.0f%%", prev_min * 100, prev_max * 100),
+    n_reps,
+    # Point estimates
+    beta_median,
+    beta_mean,
+    # IQR — use for sensitivity analyses
+    beta_q25,
+    beta_q75,
+    beta_iqr,
+    # 95% CI — use for uncertainty propagation
+    beta_ci95_lo,
+    beta_ci95_hi,
+    # Achieved steady-state prevalence with these betas
+    prev_median,
+    prev_mean,
+    prev_q25,
+    prev_q75
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 6)))
+
+message("\n--- Calibrated beta parameters (ready for downstream modelling) ---")
+print(beta_calibrated_params)
+
+# ============================================================
 # 11. SAVE ALL OUTPUTS
 # ============================================================
 
@@ -332,9 +372,18 @@ saveRDS(beta_final_tiered,
 saveRDS(beta_agnostic_summary,
         file.path(output_dir, out_file("beta_agnostic_summary",         "rds")))
 
+saveRDS(beta_calibrated_params,
+        file.path(output_dir, out_file("beta_calibrated_params",        "rds")))
+
 write_csv(
   beta_agnostic_summary %>% mutate(across(where(is.numeric), ~ round(.x, 6))),
   file.path(output_dir, out_file("beta_agnostic_summary", "csv"))
+)
+
+# Primary output for downstream modelling — clean flat CSV
+write_csv(
+  beta_calibrated_params,
+  file.path(output_dir, out_file("beta_calibrated_params", "csv"))
 )
 
 message("All outputs saved with suffix: ", run_suffix)
@@ -957,4 +1006,355 @@ dashboard <- (plot_beta_curve        | plot_forest_mean_ci)   /
 print(dashboard)
 save_ppt(dashboard, out_file("plot_00_dashboard", "png"), w = 5120, h = 2880)
 
-message("\n✓ All done. Outputs saved to:\n  ", output_dir)
+# ============================================================
+# 22. RESTRICTED HIGH TIER — steady-state prevalence 10%–50%
+#     Sensitivity analysis: relaxes the 40% upper cap to 50%.
+#     Low and Mid tiers are identical to the main analysis.
+# ============================================================
+
+message("\n--- Restricted High tier: 10%–50% ---")
+
+beta_final_tiered_50 <- beta_calibration_final %>%
+  mutate(
+    amr_tier = case_when(
+      final_overall_prevalence <  0.020                                       ~ "Low",
+      final_overall_prevalence >= 0.020 & final_overall_prevalence <  0.100  ~ "Mid",
+      final_overall_prevalence >= 0.100 & final_overall_prevalence <= 0.500  ~ "High",
+      TRUE ~ NA_character_
+    ),
+    amr_tier = factor(amr_tier, levels = c("Low", "Mid", "High"))
+  ) %>%
+  filter(!is.na(amr_tier))
+
+n_added <- nrow(beta_final_tiered_50) - nrow(beta_final_tiered)
+message("Reps in High tier: full range vs 10-50% restricted, difference: ", n_added)
+beta_final_tiered_50 %>% count(amr_tier) %>% print()
+
+beta_agnostic_summary_50 <- beta_final_tiered_50 %>%
+  group_by(amr_tier) %>%
+  summarise(
+    n_reps        = n(),
+    n_beta_values = n_distinct(beta_within),
+    beta_mean     = mean(beta_within),
+    beta_sd       = sd(beta_within),
+    beta_se       = beta_sd / sqrt(n_reps),
+    beta_ci95_lo  = beta_mean - qt(0.975, df = n_reps - 1) * beta_se,
+    beta_ci95_hi  = beta_mean + qt(0.975, df = n_reps - 1) * beta_se,
+    beta_median   = median(beta_within),
+    beta_q25      = quantile(beta_within, 0.25),
+    beta_q75      = quantile(beta_within, 0.75),
+    beta_iqr      = IQR(beta_within),
+    prev_mean     = mean(final_overall_prevalence),
+    prev_median   = median(final_overall_prevalence),
+    prev_q25      = quantile(final_overall_prevalence, 0.25),
+    prev_q75      = quantile(final_overall_prevalence, 0.75),
+    .groups = "drop"
+  ) %>%
+  left_join(amr_tiers, by = "amr_tier")
+
+message("Beta summary (High capped at 50%):")
+beta_agnostic_summary_50 %>%
+  select(amr_tier, n_reps, beta_median, beta_q25, beta_q75,
+         beta_mean, beta_ci95_lo, beta_ci95_hi, prev_median) %>%
+  print()
+
+comparison_caps <- bind_rows(
+  beta_agnostic_summary    %>% filter(amr_tier == "High") %>% mutate(cap = "Full range (main)"),
+  beta_agnostic_summary_50 %>% filter(amr_tier == "High") %>% mutate(cap = "10-50% restricted (sensitivity)")
+) %>%
+  select(cap, n_reps, beta_median, beta_q25, beta_q75,
+         beta_ci95_lo, beta_ci95_hi, prev_median)
+
+message("\n--- High tier: full range vs 10-50% restricted ---")
+print(comparison_caps)
+
+saveRDS(beta_agnostic_summary_50,
+        file.path(output_dir, out_file("beta_agnostic_summary_50pct", "rds")))
+write_csv(
+  beta_agnostic_summary_50 %>% mutate(across(where(is.numeric), ~ round(.x, 6))),
+  file.path(output_dir, out_file("beta_agnostic_summary_50pct", "csv"))
+)
+write_csv(
+  comparison_caps %>% mutate(across(where(is.numeric), ~ round(.x, 6))),
+  file.path(output_dir, out_file("beta_high_tier_cap_comparison", "csv"))
+)
+
+# ---- Plot 22a: density + median/IQR — 50% cap ---------------
+plot_rain_50 <- ggplot(
+  beta_final_tiered_50,
+  aes(x = beta_within, y = fct_rev(amr_tier),
+      fill = amr_tier, color = amr_tier)
+) +
+  ggdist::stat_halfeye(
+    adjust = 0.9, width = 0.55, .width = c(0.25, 0.75),
+    point_colour = NA, alpha = 0.75
+  ) +
+  geom_point(position = position_jitter(height = 0.07, seed = 42),
+             size = 1.4, alpha = 0.35) +
+  geom_errorbarh(
+    data   = beta_agnostic_summary_50,
+    aes(xmin = beta_q25, xmax = beta_q75, y = fct_rev(amr_tier)),
+    height = 0.22, linewidth = 2.8, alpha = 0.45,
+    color  = OI$black, inherit.aes = FALSE
+  ) +
+  geom_point(
+    data  = beta_agnostic_summary_50,
+    aes(x = beta_median, y = fct_rev(amr_tier)),
+    shape = 23, size = 5, fill = "white",
+    color = OI$black, stroke = 1.8, inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = beta_agnostic_summary_50,
+    aes(x     = beta_median,
+        y     = as.numeric(fct_rev(amr_tier)) + 0.40,
+        label = sprintf("Median = %.4f  [IQR: %.4f - %.4f]",
+                        beta_median, beta_q25, beta_q75)),
+    size = 3.4, hjust = 0.5, color = OI$black, inherit.aes = FALSE
+  ) +
+  scale_fill_manual(values  = tier_colors, guide = "none") +
+  scale_color_manual(values = tier_colors, guide = "none") +
+  scale_x_continuous(labels = function(x) sprintf("%.4f", x),
+                     expand = expansion(mult = c(0.02, 0.05))) +
+  common_theme +
+  theme(axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 14, face = "bold")) +
+  labs(
+    x        = "beta (within-hospital transmission rate)",
+    y        = "Colonization tier",
+    title    = "Beta Distribution by Tier — Median + IQR  (High tier: 10-50%)",
+    subtitle = "Diamond = median | thick bar = IQR | density curve | High tier upper cap relaxed to 50%"
+  )
+
+print(plot_rain_50)
+save_ppt(plot_rain_50, out_file("plot_22a_rain_50pct_cap", "png"))
+
+# ---- Plot 22b: forest plot — 40% vs 50% cap comparison ------
+plot_forest_50_compare <- ggplot(
+  bind_rows(
+    beta_agnostic_summary    %>% filter(amr_tier == "High") %>% mutate(cap = "Full range (main)"),
+    beta_agnostic_summary_50 %>% filter(amr_tier == "High") %>% mutate(cap = "10-50% restricted (sensitivity)")
+  ),
+  aes(x = beta_median, y = fct_rev(cap), color = cap)
+) +
+  geom_errorbarh(aes(xmin = beta_q25, xmax = beta_q75),
+                 height = 0.20, linewidth = 4, alpha = 0.35) +
+  geom_point(aes(x = beta_median), shape = 124, size = 8, stroke = 1.5) +
+  geom_point(size = 5, shape = 23, fill = "white", stroke = 1.8) +
+  geom_text(
+    aes(x     = beta_q75,
+        label = sprintf("  Median %.4f  [IQR: %.4f - %.4f]",
+                        beta_median, beta_q25, beta_q75)),
+    hjust = 0, size = 3.8, color = OI$black
+  ) +
+  scale_color_manual(
+    values = c("Full range (main)"        = OI$red,
+               "10-50% restricted (sensitivity)" = OI$pink),
+    guide  = "none"
+  ) +
+  scale_x_continuous(labels = function(x) sprintf("%.4f", x),
+                     expand = expansion(mult = c(0.05, 0.50))) +
+  common_theme +
+  theme(axis.text.x        = element_text(size = 10),
+        axis.text.y        = element_text(size = 12, face = "bold"),
+        panel.grid.major.y = element_blank()) +
+  labs(
+    x        = "beta (within-hospital transmission rate)",
+    y        = NULL,
+    title    = "High Tier Sensitivity: Full Range vs 10-50% Restricted",
+    subtitle = "Diamond = median | thick bar = IQR | main = full range (>=10%) | sensitivity = 10-50% cap"
+  )
+
+print(plot_forest_50_compare)
+save_ppt(plot_forest_50_compare, out_file("plot_22b_forest_50pct_compare", "png"))
+
+# ============================================================
+# 23. HOSPITALS WITH >=1 CASE — DISTRIBUTION AT TIMEPOINTS
+#     At 6, 12, 18, 24, 30, 36 months: how many hospitals
+#     have at least one case across all beta values and reps?
+#     Uses n_hospitals_with_case from beta_trajectory_long.
+# ============================================================
+
+message("\n--- Hospital case count distribution at timepoints ---")
+
+hosp_timepoints <- tibble(
+  label       = factor(
+    c("6 months", "12 months", "18 months",
+      "24 months", "30 months", "36 months"),
+    levels = c("6 months", "12 months", "18 months",
+               "24 months", "30 months", "36 months")
+  ),
+  target_date = as.Date(c(
+    "2024-07-01", "2025-01-01", "2025-07-01",
+    "2026-01-01", "2026-07-01", "2026-12-31"
+  ))
+) %>%
+  mutate(snapped_date = as.Date(
+    sapply(target_date, function(d)
+      available_dates[which.min(abs(available_dates - d))]),
+    origin = "1970-01-01"))
+
+hosp_case_data <- beta_trajectory_long %>%
+  filter(date %in% hosp_timepoints$snapped_date) %>%
+  left_join(hosp_timepoints %>% select(label, snapped_date),
+            by = c("date" = "snapped_date")) %>%
+  left_join(
+    beta_final_tiered %>%
+      select(beta_within, rep_id, sim_seed, seed_hospital_iter, amr_tier) %>%
+      distinct(),
+    by = c("beta_within", "rep_id", "sim_seed", "seed_hospital_iter")
+  ) %>%
+  filter(!is.na(amr_tier))
+
+message("Rows for hospital case distribution: ", nrow(hosp_case_data))
+
+# ---- Plot 23a: violin + box, faceted by tier ----------------
+plot_hosp_violin_tier <- ggplot(
+  hosp_case_data,
+  aes(x = label, y = n_hospitals_with_case,
+      fill = amr_tier, color = amr_tier)
+) +
+  geom_violin(alpha = 0.45, linewidth = 0.5, scale = "width", trim = TRUE) +
+  geom_boxplot(width = 0.18, outlier.size = 0.8, outlier.alpha = 0.4,
+               alpha = 0.85, color = OI$black, linewidth = 0.5) +
+  facet_wrap(~ amr_tier, ncol = 3, scales = "free_y") +
+  scale_fill_manual(values  = tier_colors, guide = "none") +
+  scale_color_manual(values = tier_colors, guide = "none") +
+  scale_y_continuous(labels = comma) +
+  common_theme +
+  theme(
+    strip.text       = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill = "#f0f0f0", color = NA),
+    axis.text.x      = element_text(size = 10, angle = 30, hjust = 1),
+    axis.text.y      = element_text(size = 9)
+  ) +
+  labs(
+    x        = "Time since simulation start",
+    y        = "Number of hospitals with >=1 case",
+    title    = "Distribution of Hospitals with Active Cases at Key Timepoints",
+    subtitle = "Violin = full distribution | Box = median + IQR | Faceted by colonization tier"
+  )
+
+print(plot_hosp_violin_tier)
+save_ppt(plot_hosp_violin_tier, out_file("plot_23a_hosp_cases_by_tier", "png"))
+
+# ---- Plot 23b: faceted by beta value -------------------------
+plot_hosp_violin_beta <- ggplot(
+  hosp_case_data,
+  aes(x = label, y = n_hospitals_with_case,
+      fill = amr_tier, color = amr_tier)
+) +
+  geom_violin(alpha = 0.40, linewidth = 0.4, scale = "width", trim = TRUE) +
+  geom_boxplot(width = 0.2, outlier.size = 0.5, outlier.alpha = 0.3,
+               alpha = 0.80, color = OI$black, linewidth = 0.4) +
+  facet_wrap(~ beta_label, scales = "free_y", ncol = 5) +
+  scale_fill_manual(name  = "Colonization tier", values = tier_colors) +
+  scale_color_manual(name = "Colonization tier", values = tier_colors) +
+  scale_y_continuous(labels = comma) +
+  common_theme +
+  theme(
+    legend.position  = "top",
+    legend.title     = element_text(face = "bold", size = 11),
+    strip.text       = element_text(size = 8, face = "bold"),
+    strip.background = element_rect(fill = "#f0f0f0", color = NA),
+    axis.text.x      = element_text(size = 7, angle = 35, hjust = 1),
+    axis.text.y      = element_text(size = 7)
+  ) +
+  labs(
+    x        = "Time since simulation start",
+    y        = "Number of hospitals with >=1 case",
+    title    = "Hospitals with Active Cases at Key Timepoints by beta",
+    subtitle = "Violin = full distribution | Box = median + IQR | Colour = colonization tier"
+  )
+
+print(plot_hosp_violin_beta)
+save_ppt(plot_hosp_violin_beta, out_file("plot_23b_hosp_cases_by_beta", "png"))
+
+# ---- Plot 23c: median trajectory with timepoint markers ------
+hosp_case_summary <- beta_trajectory_long %>%
+  left_join(
+    beta_final_tiered %>%
+      group_by(beta_within, amr_tier) %>%
+      summarise(n = n(), .groups = "drop") %>%
+      group_by(beta_within) %>%
+      slice_max(n, n = 1, with_ties = FALSE) %>%
+      select(beta_within, amr_tier),
+    by = "beta_within"
+  ) %>%
+  filter(!is.na(amr_tier)) %>%
+  group_by(amr_tier, beta_within, beta_label, date) %>%
+  summarise(
+    hosp_median = median(n_hospitals_with_case, na.rm = TRUE),
+    hosp_q25    = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
+    hosp_q75    = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
+    .groups     = "drop"
+  )
+
+plot_hosp_trajectory <- ggplot(
+  hosp_case_summary,
+  aes(x = date, y = hosp_median, color = amr_tier, group = beta_within)
+) +
+  geom_ribbon(aes(ymin = hosp_q25, ymax = hosp_q75, fill = amr_tier),
+              alpha = 0.10, color = NA) +
+  geom_line(linewidth = 0.6, alpha = 0.75) +
+  geom_vline(data = hosp_timepoints,
+             aes(xintercept = snapped_date),
+             linetype = "dotted", color = OI$grey, linewidth = 0.7,
+             inherit.aes = FALSE) +
+  geom_text(data = hosp_timepoints,
+            aes(x = snapped_date, y = Inf, label = label),
+            vjust = 1.4, hjust = -0.05, size = 3.0,
+            color = OI$grey, inherit.aes = FALSE) +
+  scale_color_manual(name  = "Colonization tier", values = tier_colors) +
+  scale_fill_manual(name   = "Colonization tier", values = tier_colors) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %y") +
+  scale_y_continuous(labels = comma) +
+  common_theme +
+  theme(
+    legend.position = "top",
+    legend.title    = element_text(face = "bold", size = 11),
+    axis.text.x     = element_text(size = 9, angle = 45, hjust = 1),
+    axis.text.y     = element_text(size = 9)
+  ) +
+  labs(
+    x        = "Date",
+    y        = "Median hospitals with >=1 case",
+    title    = "Epidemic Spread: Hospitals with Active Cases Over Time",
+    subtitle = "Each line = one beta value | Ribbon = IQR | Colour = dominant tier | Dotted = analysis timepoints"
+  )
+
+print(plot_hosp_trajectory)
+save_ppt(plot_hosp_trajectory, out_file("plot_23c_hosp_cases_trajectory", "png"))
+
+# Summary table
+hosp_case_table <- hosp_case_data %>%
+  group_by(amr_tier, label) %>%
+  summarise(
+    n_reps       = n(),
+    hosp_median  = median(n_hospitals_with_case, na.rm = TRUE),
+    hosp_q25     = quantile(n_hospitals_with_case, 0.25, na.rm = TRUE),
+    hosp_q75     = quantile(n_hospitals_with_case, 0.75, na.rm = TRUE),
+    hosp_mean    = mean(n_hospitals_with_case, na.rm = TRUE),
+    hosp_ci95_lo = hosp_mean - qt(0.975, df = n_reps - 1) *
+      (sd(n_hospitals_with_case, na.rm = TRUE) / sqrt(n_reps)),
+    hosp_ci95_hi = hosp_mean + qt(0.975, df = n_reps - 1) *
+      (sd(n_hospitals_with_case, na.rm = TRUE) / sqrt(n_reps)),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1)))
+
+message("\n--- Hospitals with cases: median [IQR] per tier per timepoint ---")
+print(hosp_case_table, n = Inf)
+
+write_csv(hosp_case_table,
+          file.path(output_dir, out_file("hosp_case_count_by_tier_timepoint", "csv")))
+saveRDS(hosp_case_data,
+        file.path(output_dir, out_file("hosp_case_data_timepoints", "rds")))
+
+message("\n All done. Outputs saved to:\n  ", output_dir)
+
+#Look at overall prevalence on the final dayof the sim
+
+ final_overall_prev =beta_trajectory_long %>%
+  filter(date == as.Date("2026-12-31")) %>%
+  select(beta_within, rep_id, overall_prevalence)
+#
