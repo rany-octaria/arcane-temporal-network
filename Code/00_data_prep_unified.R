@@ -251,7 +251,7 @@ facility_meta <- facility_meta %>%
   {
     has_xy <- filter(., has_coords_raw)
     no_xy  <- filter(., !has_coords_raw)
-    
+
     reprojected <- has_xy %>%
       st_as_sf(coords = c(coord_x_col, coord_y_col), crs = 2154, remove = FALSE) %>%
       st_transform(4326) %>%
@@ -260,7 +260,7 @@ facility_meta <- facility_meta %>%
         latitude  = st_coordinates(.)[, 2]
       ) %>%
       st_drop_geometry()
-    
+
     bind_rows(reprojected,
               no_xy %>% mutate(longitude = NA_real_, latitude = NA_real_))
   }
@@ -797,11 +797,11 @@ unmatched_combos <- hospital_stats %>%
 if (nrow(unmatched_combos) > 0) {
   message("\n  Unmatched region x type_spares combinations (facility counts):")
   print(as.data.frame(unmatched_combos), row.names = FALSE)
-  
+
   message("\n  Regions in SPARES not found in hospital_stats:")
   missing_reg <- setdiff(unique(spares$region), unique(hospital_stats$region))
   if (length(missing_reg) > 0) print(missing_reg) else message("    None (all regions matched)")
-  
+
   message("  Types in SPARES not found in hospital_stats$type_spares:")
   missing_type <- setdiff(unique(spares$type), unique(hospital_stats$type_spares))
   if (length(missing_type) > 0) print(missing_type) else message("    None (all types matched)")
@@ -840,30 +840,30 @@ message("\n── Part J: Build final facility-level dataset ──")
 facility_level_final <- hospital_stats %>%
   select(
     # Identity
-    finess_geo, facility_name_capact,
-    
+    finess_geo, facility_name, facility_name_capact,
+
     # Geography
     city, department, region,
-    
+
     # Type (multiple source labels kept for traceability)
     hospital_type, facility_type_pmsi, facility_type_capact, type_spares,
-    
+
     # Beds
     pmsi_total_beds_mco, capact_beds_mco, capact_beds_ssr, capact_total_beds,
-    
+
     # Admissions (yearly total, from Part A)
     admit_yr,
-    
+
     # Length of stay (facility-level, from Part G)
     los_mean, los_median, los_q1, los_q3, los_ci_low, los_ci_hi, los_sd,
-    
+
     # Patient volume / patient-days (facility-level, from Part G)
     patient_total, pt_days_total,
-    
+
     # Daily census stats (facility-level, from Part G)
     census_min, census_max, census_mean, census_median,
     census_95ci_low, census_95ci_hi,
-    
+
     # SPARES region x type ESBL incidence (ecological estimate, from Part I)
     incidence_region_type_ESBL_all,
     incidence_region_type_ESBL_ecoli,
@@ -930,7 +930,7 @@ for (htype in c("MCO", "SSR", "MCO/SSR")) {
   node_attributes_enriched %>%
     filter(hospital_type == htype) %>%
     select(finess_geo, hospital_type, facility_type_pmsi, facility_type_capact,
-           facility_name_capact, pmsi_total_beds_mco,
+           facility_name, pmsi_total_beds_mco,
            capact_beds_mco, capact_beds_ssr, capact_total_beds) %>%
     save_csv_out(fname)
 }

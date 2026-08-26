@@ -1,0 +1,352 @@
+---
+title: "ARCANE — Regional Beta Calibration"
+subtitle: "ESBL Transmission Rate by Region and Facility Type"
+author: "MESuRS/Cnam"
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
+  powerpoint_presentation:
+    slide_level: 2
+    fig_width: 10
+    fig_height: 5.5
+    reference_doc: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  dpi     = 150
+)
+```
+
+```{r libraries}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(knitr)
+```
+
+```{r load-data}
+COMPILED_FILE <- file.path(
+  "C:/Users/octariar/OneDrive - LECNAM/Documents/GitHub/arcane-temporal-network-new/optim_cluster_jobs",
+  "Outputs", "region_cluster", "compiled", "compiled_region.rds"
+)
+if (!file.exists(COMPILED_FILE))
+  stop("Run compile_region.R first.\nExpected: ", COMPILED_FILE)
+
+compiled      <- readRDS(COMPILED_FILE)
+all_summaries <- compiled$all_summaries
+results       <- compiled$results
+all_regions   <- compiled$regions
+n_regions     <- compiled$n_regions
+
+type_colours <- c(
+  "General public hospital"         = "#0057B8",
+  "University hospital"             = "#F5A623",
+  "Private for profit hospital"     = "#E74C3C",
+  "Private not-for-profit hospital" = "#9B1D8A",
+  "Rehabilitation hospital"         = "#C1392B",
+  "Cancer centre (CLCC)"            = "#2ECC71",
+  "MCO"     = "#0057B8", "SSR"     = "#C1392B",
+  "MCO/SSR" = "#9B1D8A", "PSY"     = "#F5A623",
+  "HAD"     = "#00B4D8", "Unknown" = "#555555"
+)
+
+theme_arcane <- function(base_size = 13) {
+  theme_bw(base_size = base_size) +
+    theme(
+      plot.title       = element_text(face = "bold", colour = "#0D3B66", size = base_size + 1),
+      plot.subtitle    = element_text(colour = "grey40", size = base_size - 1),
+      panel.grid.minor = element_blank(),
+      axis.title       = element_text(colour = "grey30"),
+      legend.position  = "right"
+    )
+}
+```
+
+```{r recompute-metrics}
+sse_summary <- all_summaries %>%
+  group_by(region, H_region, sse_total) %>%
+  summarise(n_types = n(), .groups = "drop") %>%
+  mutate(
+    sse_per_type = round(sse_total / n_types, 6),
+    mape = sapply(region, function(r) {
+      d <- filter(all_summaries, region == r)
+      round(mean(abs(d$diff / d$incidence_obs) * 100, na.rm = TRUE), 2)
+    }),
+    r2 = sapply(region, function(r) {
+      d <- filter(all_summaries, region == r)
+      if (nrow(d) < 2) return(NA_real_)
+      round(cor(d$incidence_obs, d$incidence_sim_mean, use = "complete.obs")^2, 4)
+    })
+  ) %>% arrange(mape)
+
+set.seed(42)
+n_boot <- 1000
+weighted_beta_summary <- all_summaries %>%
+  filter(!is.na(beta), !is.na(H_region), beta > 0) %>%
+  group_by(type) %>%
+  group_modify(function(d, key) {
+    w <- d$H_region; log_b <- log(d$beta); n <- nrow(d)
+    wgm <- exp(sum(w * log_b) / sum(w))
+    boot_wgm <- replicate(n_boot, {
+      idx <- sample(seq_len(n), n, replace = TRUE)
+      bd <- d[idx, ]; wd <- w[idx]
+      exp(sum(wd * log(bd$beta)) / sum(wd))
+    })
+    data.frame(
+      wgm    = round(wgm, 6),
+      ci_lo  = round(quantile(boot_wgm, 0.025), 6),
+      ci_hi  = round(quantile(boot_wgm, 0.975), 6),
+      n_regions = n,
+      stringsAsFactors = FALSE
+    )
+  }) %>% ungroup()
+```
+
+# Overview
+
+## Study context
+
+- **Goal:** Estimate β — the daily within-hospital ESBL transmission rate — per facility type
+- **Model:** Stochastic SIS on the PMSI inter-hospital transfer network
+- **Target:** SPARES ESBL incidence by facility type × region
+- **Regions calibrated:** `r n_regions` French administrative regions
+- **Runs per region:** 10 independent Nelder-Mead optimisations (best selected)
+- **Facility types:** `r paste(unique(all_summaries$type), collapse = ", ")`
+
+# Cross-regional comparison
+
+## Calibration quality by region (MAPE)
+
+```{r mape-bar, fig.height=5.5}
+sse_summary %>%
+  mutate(region = gsub("_", " ", region)) %>%
+  ggplot(aes(x = reorder(region, mape), y = mape, fill = mape)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = paste0(round(mape, 1), "%")), hjust = -0.1, size = 3.8) +
+  scale_fill_gradient(low = "#2ecc71", high = "#e74c3c", guide = "none") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  coord_flip() +
+  labs(
+    title    = "Calibration quality — MAPE by region",
+    subtitle = "Mean absolute % error. Scale-free: not biased by region size or number of types.",
+    x = NULL, y = "MAPE (%)"
+  ) +
+  theme_arcane()
+```
+
+## Beta heatmap — type × region
+
+```{r beta-heatmap, fig.height=5.5}
+all_summaries %>%
+  filter(!is.na(beta)) %>%
+  mutate(region = gsub("_", " ", region)) %>%
+  left_join(sse_summary %>%
+              transmute(region = gsub("_"," ",region), mape),
+            by = "region") %>%
+  ggplot(aes(x = type, y = reorder(region, mape), fill = beta)) +
+  geom_tile(colour = "white", linewidth = 0.5) +
+  geom_text(aes(label = formatC(beta, format = "e", digits = 1)), size = 2.6) +
+  scale_fill_viridis_c(name = "β (per day)", option = "plasma",
+                       trans = "log10", labels = scientific) +
+  labs(
+    title    = "Optimal β per facility type × region",
+    subtitle = "Log10 colour scale  |  Sorted by MAPE (best at top)  |  Empty = no SPARES data",
+    x = "Facility type", y = NULL
+  ) +
+  theme_arcane(11) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1),
+        panel.grid  = element_blank())
+```
+
+## National beta — weighted geometric mean
+
+```{r national-beta, fig.height=5}
+weighted_beta_summary %>%
+  ggplot(aes(x = reorder(type, wgm), y = wgm)) +
+  geom_col(fill = "#1A7A8A", width = 0.65, alpha = 0.9) +
+  geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi),
+                width = 0.25, linewidth = 1.1, colour = "#0D3B66") +
+  geom_point(size = 3, colour = "#0D3B66") +
+  geom_text(aes(label = formatC(wgm, format = "e", digits = 2), y = ci_hi),
+            vjust = -0.6, size = 3.5, colour = "#0D3B66") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+  coord_flip() +
+  labs(
+    title    = "National β per facility type",
+    subtitle = "Weighted geometric mean | Weights = hospitals per region | Error bars = 95% bootstrap CI",
+    x = NULL, y = "β (per day)"
+  ) +
+  theme_arcane()
+```
+
+## Observed vs simulated — all regions
+
+```{r obs-sim-all, fig.height=5.5, fig.width=10}
+all_summaries %>%
+  filter(!is.na(incidence_obs)) %>%
+  left_join(sse_summary %>% select(region, mape), by = "region") %>%
+  mutate(region_label = paste0(gsub("_"," ",region),
+                                "\nMAPE=", round(mape,1), "%")) %>%
+  ggplot(aes(x = incidence_obs, y = incidence_sim_mean, colour = type)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_errorbar(aes(ymin = pmax(incidence_sim_mean - incidence_sim_sd, 0),
+                    ymax = incidence_sim_mean + incidence_sim_sd),
+                width = 0, alpha = 0.4) +
+  geom_point(size = 2.5) +
+  facet_wrap(~ region_label, ncol = 5, scales = "free") +
+  scale_colour_manual(values = type_colours, na.value = "#555555", name = NULL) +
+  labs(title = "Simulated vs observed incidence — all regions",
+       x = "Observed (per 1,000 bed-days)",
+       y = "Simulated (per 1,000 bed-days)") +
+  theme_arcane(9) +
+  theme(legend.position  = "bottom",
+        strip.background = element_rect(fill = "#F0F4F8"),
+        strip.text       = element_text(size = 7))
+```
+
+## Percentage error — type × region
+
+```{r pct-error, fig.height=5.5}
+all_summaries %>%
+  mutate(pct_error = 100 * diff / incidence_obs,
+         region    = gsub("_", " ", region)) %>%
+  filter(!is.na(pct_error)) %>%
+  left_join(sse_summary %>%
+              transmute(region = gsub("_"," ",region), mape),
+            by = "region") %>%
+  ggplot(aes(x = type, y = reorder(region, mape), fill = pct_error)) +
+  geom_tile(colour = "white", linewidth = 0.5) +
+  geom_text(aes(label = paste0(ifelse(pct_error > 0, "+", ""),
+                               round(pct_error, 0), "%")), size = 2.6) +
+  scale_fill_gradient2(low = "#2980b9", mid = "white", high = "#e74c3c",
+                       midpoint = 0, limits = c(-50, 50), oob = squish,
+                       name = "% error") +
+  labs(title = "% error by region and facility type",
+       subtitle = "Red = over-estimate  |  Blue = under-estimate  |  White = near-perfect fit",
+       x = "Facility type", y = NULL) +
+  theme_arcane(11) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1),
+        panel.grid  = element_blank())
+```
+
+## Beta variability across regions
+
+```{r beta-boxplot, fig.height=5}
+all_summaries %>%
+  filter(!is.na(beta)) %>%
+  mutate(region = gsub("_", " ", region)) %>%
+  ggplot(aes(x = reorder(type, beta, FUN = median), y = beta)) +
+  geom_boxplot(width = 0.4, outlier.shape = NA,
+               fill = "#d6eaf8", colour = "#2980b9", linewidth = 0.6) +
+  geom_jitter(aes(colour = region), width = 0.15, size = 2.5, alpha = 0.8) +
+  scale_y_log10(labels = scientific) +
+  scale_colour_viridis_d(name = "Region",
+                          guide = guide_legend(ncol = 2)) +
+  labs(title = "Beta estimates across regions by facility type",
+       subtitle = "Each dot = one region  |  Box = IQR  |  Log scale  |  Tight cluster = stable estimate",
+       x = NULL, y = "β (per day, log scale)") +
+  coord_flip() +
+  theme_arcane()
+```
+
+## Hospitals per region
+
+```{r hosp-per-region, fig.height=5}
+sse_summary %>%
+  mutate(region = gsub("_", " ", region)) %>%
+  ggplot(aes(x = reorder(region, H_region), y = H_region, fill = H_region)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = H_region), hjust = -0.2, size = 3.8) +
+  scale_fill_gradient(low = "#aed6f1", high = "#1a5276", guide = "none") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  coord_flip() +
+  labs(title = "Regional sub-network size",
+       subtitle = "After subsetting the national transfer network to within-region transfers only",
+       x = NULL, y = "Hospitals (H)") +
+  theme_arcane()
+```
+
+## Fit metrics summary table
+
+```{r fit-table}
+sse_summary %>%
+  mutate(region = gsub("_", " ", region)) %>%
+  select(region, H_region, n_types, mape, r2, sse_per_type) %>%
+  arrange(mape) %>%
+  kable(
+    col.names = c("Region", "Hospitals", "Types", "MAPE (%)", "R²", "SSE/type"),
+    digits    = c(0, 0, 0, 2, 3, 4),
+    align     = c("l","r","r","r","r","r"),
+    caption   = "Sorted by MAPE (best at top). MAPE and R² are scale-free."
+  )
+```
+
+# Individual Region Reports
+
+```{r region-slides, results='asis', fig.height=5, fig.width=10}
+for (rname in all_regions) {
+
+  r     <- results[[rname]]
+  val   <- r$validation_summary
+  rdisp <- gsub("_", " ", rname)
+  rmape <- round(sse_summary$mape[sse_summary$region == rname], 1)
+  rr2   <- round(sse_summary$r2[sse_summary$region  == rname], 3)
+
+  # Section header slide for each region
+  cat("\n\n## ", rdisp, "\n\n")
+  cat(sprintf("H = %d hospitals  |  MAPE = %.1f%%  |  R² = %.3f  |  SSE = %.5f\n\n",
+              r$H_region, rmape, rr2, r$sse_final))
+
+  # Observed vs simulated plot
+  axis_max <- max(c(val$incidence_obs,
+                    val$incidence_sim_mean + val$incidence_sim_sd),
+                  na.rm = TRUE) * 1.15
+
+  p_obs <- ggplot(val, aes(x = incidence_obs, y = incidence_sim_mean,
+                            colour = type)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey40") +
+    geom_errorbar(aes(ymin = pmax(incidence_sim_mean - incidence_sim_sd, 0),
+                      ymax = incidence_sim_mean + incidence_sim_sd),
+                  width = 0, alpha = 0.5, linewidth = 0.9) +
+    geom_point(size = 5) +
+    geom_text(aes(label = type), hjust = -0.1, size = 3,
+              show.legend = FALSE) +
+    scale_colour_manual(values = type_colours, na.value = "#555555") +
+    scale_x_continuous(limits = c(0, axis_max)) +
+    scale_y_continuous(limits = c(0, axis_max)) +
+    coord_fixed() +
+    labs(title = paste0("Simulated vs observed — ", rdisp),
+         subtitle = paste0("SSE = ", round(r$sse_final, 4),
+                           "  |  ±1 SD across ", r$n_rep_valid, " replicates"),
+         x = "Observed (per 1,000 bed-days)",
+         y = "Simulated (per 1,000 bed-days)") +
+    theme_arcane() +
+    theme(legend.position = "none")
+
+  print(p_obs)
+  cat("\n\n")
+
+  # Beta bar chart slide
+  cat("\n\n## ", rdisp, " — Beta estimates\n\n")
+
+  p_beta <- ggplot(val, aes(x = reorder(type, beta), y = beta, fill = type)) +
+    geom_col(width = 0.65) +
+    geom_text(aes(label = formatC(beta, format = "e", digits = 2)),
+              hjust = -0.1, size = 3.8) +
+    scale_fill_manual(values = type_colours, na.value = "#555555") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
+    coord_flip() +
+    labs(title = paste0("Optimal β by facility type — ", rdisp),
+         subtitle = paste0("MAPE = ", rmape, "%  |  R² = ", rr2),
+         x = NULL, y = "β (per day)") +
+    theme_arcane() +
+    theme(legend.position = "none")
+
+  print(p_beta)
+  cat("\n\n")
+}
+```

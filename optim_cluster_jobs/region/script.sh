@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -N arcane_optim
+#PBS -N arcane_region
 #PBS -q mem128G
 #PBS -o /media/kevinNFS2/rany/optim_cluster_jobs/logs/${PBS_JOBID}.out
 #PBS -e /media/kevinNFS2/rany/optim_cluster_jobs/logs/${PBS_JOBID}.err
@@ -10,14 +10,12 @@ echo "=========================================================="
 echo "Starting on  : $(date)"
 echo "Running on   : $(hostname)"
 echo "PBS job ID   : ${PBS_JOBID:-NA}"
-echo "PBS workdir  : ${PBS_O_WORKDIR:-NA}"
-echo "R script     : ${rscript:-NOT SET}"
 echo "jobindex     : ${jobindex:-1}"
 echo "=========================================================="
 
 cd "${PBS_O_WORKDIR:-/media/kevinNFS2/rany}" || exit 1
 
-mkdir -p optim_cluster_jobs/Outputs \
+mkdir -p optim_cluster_jobs/Outputs/region \
          optim_cluster_jobs/logs
 
 if [ -n "${PBS_NODEFILE:-}" ] && [ -f "$PBS_NODEFILE" ]; then
@@ -32,10 +30,9 @@ echo "NCPUS        : $NCPUS"
 echo "ARCANE_ROOT  : $ARCANE_ROOT"
 echo "=========================================================="
 
-# If your cluster uses environment modules, uncomment:
 # module load R
 
-Rscript --vanilla "${rscript}"
+Rscript --vanilla optim_cluster_jobs/region/optim_region.R
 
 echo "=========================================================="
 echo "Finished on  : $(date)"

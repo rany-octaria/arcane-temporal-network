@@ -1,0 +1,566 @@
+---
+title: "ARCANE — France-Wide Beta Calibration Diagnostics"
+subtitle: "ESBL Transmission Rate Estimation — All 10 Parallel Runs"
+author: "ARCANE Project — MESuRS/Cnam"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    fig_width: 10
+    fig_height: 6
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo      = TRUE,
+  warning   = FALSE,
+  message   = FALSE,
+  fig.align = "center"
+)
+```
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(knitr)
+library(kableExtra)
+```
+
+---
+
+# Overview
+
+This report analyses all **10 independent France-wide calibration runs**.
+Each run is a fully independent Nelder-Mead optimisation started with a
+different random seed, allowing us to assess **result stability** (do all runs
+agree on the same β?) and **select the best run** (lowest SSE) as the
+final France-wide calibration result.
+
+## Why run 10 times?
+
+The Nelder-Mead optimiser is deterministic given a starting point, but the
+**objective function is stochastic** — it runs many simulations and averages
+them.  Two runs from the same starting point can reach slightly different
+results because of random variation in the simulations.  Running 10 independent
+jobs with different seeds and starting points gives us:
+
+1. **Robustness:** If all 10 runs agree, we are confident the result is stable
+2. **Best result:** The run with the lowest SSE is the most accurate calibration
+3. **Uncertainty estimate:** The spread of β values across runs tells us how
+   precisely we can identify the transmission rate
+
+---
+
+```{r load-all-results}
+OUT_DIR <- file.path(
+  "C:/Users/octariar/OneDrive - LECNAM/Documents/GitHub/arcane-temporal-network-new/optim_cluster_jobs",
+  "Outputs", "france"
+)
+
+# Find all final_validation.rds across all 10 job folders
+rds_files <- list.files(OUT_DIR,
+                         pattern   = "final_validation\\.rds$",
+                         recursive  = TRUE,
+                         full.names = TRUE)
+rds_files <- rds_files[!grepl("/compiled/|/analysis/", rds_files)]
+
+if (length(rds_files) == 0) stop("No results found under: ", OUT_DIR)
+
+results <- lapply(rds_files, readRDS)
+
+# Combined validation summary — one row per type × job
+all_summaries <- bind_rows(lapply(results, function(r) {
+  r$validation_summary %>%
+    mutate(job_index = r$job_index,
+           sse_total = r$sse_final)
+}))
+
+# SSE ranking across jobs
+sse_by_job <- all_summaries %>%
+  distinct(job_index, sse_total) %>%
+  arrange(sse_total) %>%
+  mutate(rank = row_number())
+
+best_job    <- sse_by_job$job_index[1]
+best_result <- results[[which(sapply(results, `[[`, "job_index") == best_job)]]
+best_val    <- best_result$validation_summary
+
+# Colour palette
+type_colours <- c(
+  "MCO"                             = "#0057B8",
+  "SSR"                             = "#C1392B",
+  "MCO/SSR"                         = "#9B1D8A",
+  "PSY"                             = "#F5A623",
+  "HAD"                             = "#00B4D8",
+  "Cancer centre (CLCC)"            = "#2ECC71",
+  "General public hospital"         = "#0057B8",
+  "Private for profit hospital"     = "#E74C3C",
+  "Private not-for-profit hospital" = "#9B1D8A",
+  "Rehabilitation hospital"         = "#C1392B",
+  "University hospital"             = "#F5A623",
+  "Unknown"                         = "#555555"
+)
+```
+
+---
+
+# 1. Run summary
+
+```{r run-summary}
+# How many jobs completed?
+n_jobs      <- length(results)
+n_types     <- length(best_result$incidence_obs)
+n_hospitals <- if (!is.null(best_result$H_region)) best_result$H_region else "Full network"
+
+meta <- data.frame(
+  Parameter = c(
+    "Scope",
+    "Jobs completed",
+    "Calibration types",
+    "Replicates per objective call",
+    "Validation replicates",
+    "Best job (lowest SSE)",
+    "Best SSE",
+    "Worst SSE"
+  ),
+  Value = c(
+    "France-wide (all regions pooled)",
+    paste(n_jobs, "of 10"),
+    paste(names(best_result$incidence_obs), collapse = ", "),
+    best_result$n_rep_obj,
+    best_result$n_rep_valid,
+    paste("Job", best_job),
+    round(min(sse_by_job$sse_total), 6),
+    round(max(sse_by_job$sse_total), 6)
+  )
+)
+
+kable(meta, col.names = c("Parameter", "Value"), align = c("l","l")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE)
+```
+
+---
+
+# 2. SSE across all 10 runs
+
+## What this tells us
+
+Each bar shows the **total SSE** (sum of squared errors between simulated and
+observed incidence) achieved by one of the 10 independent runs.
+
+**How to read this plot:**
+
+- **Lower SSE = better fit.** The run with the shortest bar found the best
+  combination of β values for all facility types simultaneously
+- **Bars of similar height** = the optimiser is finding the same solution
+  regardless of starting point — the calibration is stable and trustworthy
+- **One bar much shorter than the rest** = only one run found the global optimum;
+  the others got trapped in local minima.  The result is still valid (we use the
+  best run), but it suggests the optimisation landscape is complex
+- **All bars very similar and very low** = ideal result: stable, well-identified
+  transmission rates
+- The **red dashed line** marks the best SSE for reference
+
+```{r sse-all-jobs, fig.height=5}
+ggplot(sse_by_job,
+       aes(x = reorder(factor(job_index), sse_total), y = sse_total,
+           fill = job_index == best_job)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = min(sse_by_job$sse_total),
+             linetype = "dashed", colour = "#E74C3C", linewidth = 0.8) +
+  geom_text(aes(label = round(sse_total, 4)), hjust = -0.1, size = 3.5) +
+  scale_fill_manual(values = c("FALSE" = "#7fb3d3", "TRUE" = "#0057B8"),
+                    labels = c("FALSE" = "Other runs", "TRUE" = "Best run")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  coord_flip() +
+  labs(
+    title    = "Total SSE by job — France-wide calibration",
+    subtitle = "Dark blue = best run (lowest SSE).  Red dashed = best SSE reference.",
+    x        = "Job index",
+    y        = "Total SSE (sum of squared errors)",
+    fill     = NULL
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title      = element_text(face = "bold"),
+        legend.position = "bottom",
+        panel.grid.minor = element_blank())
+```
+
+---
+
+# 3. Beta stability across runs {.tabset}
+
+## What this tells us
+
+This section shows **how much the optimal β estimates vary across the 10 runs**.
+This is a critical diagnostic for assessing **parameter identifiability** — can
+the data uniquely determine β, or do many different β values fit equally well?
+
+**How to read these plots:**
+
+- **Tight cluster of points** = high stability.  All runs converge to essentially
+  the same β for that type.  The parameter is well-identified by the data.
+- **Spread of points** = uncertainty.  The optimiser finds different β values
+  for that type depending on starting conditions.  This can mean:
+  - The objective surface is flat in that direction (multiple β values fit equally)
+  - The type has few hospitals in the network so the signal is weak
+  - The type's incidence target has high uncertainty (SPARES data sparse)
+- The **★ star** marks the best run's β estimate (lowest SSE)
+- The **box** shows the interquartile range (middle 50% of estimates across runs)
+
+A well-calibrated result should have tight clusters for all types.
+
+## Beta scatter across runs
+
+```{r beta-scatter, fig.height=5}
+beta_all <- all_summaries %>%
+  select(job_index, sse_total, type, beta) %>%
+  arrange(type, sse_total)
+
+ggplot(beta_all,
+       aes(x = reorder(type, beta, FUN = median), y = beta)) +
+  geom_boxplot(width = 0.35, outlier.shape = NA,
+               fill = "#d6eaf8", colour = "#2980B9", linewidth = 0.6) +
+  geom_jitter(aes(colour = factor(job_index)),
+              width = 0.12, size = 2.5, alpha = 0.8) +
+  geom_point(data = filter(beta_all, job_index == best_job),
+             shape = 8, size = 5, colour = "black", stroke = 1.5) +
+  scale_y_log10(labels = scales::scientific) +
+  scale_colour_viridis_d(name = "Job") +
+  labs(
+    title    = "Beta estimates across all 10 runs — France-wide",
+    subtitle = "★ = best run  |  Box = IQR across runs  |  Log scale",
+    x        = "Facility type",
+    y        = "β (per day, log scale)"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title       = element_text(face = "bold"),
+        axis.text.x      = element_text(angle = 30, hjust = 1),
+        legend.position  = "right",
+        panel.grid.minor = element_blank())
+```
+
+## Beta summary statistics
+
+```{r beta-stats}
+beta_stats <- beta_all %>%
+  group_by(type) %>%
+  summarise(
+    n_runs   = n(),
+    beta_min = round(min(beta, na.rm = TRUE), 6),
+    beta_q25 = round(quantile(beta, 0.25, na.rm = TRUE), 6),
+    beta_med = round(median(beta, na.rm = TRUE), 6),
+    beta_q75 = round(quantile(beta, 0.75, na.rm = TRUE), 6),
+    beta_max = round(max(beta, na.rm = TRUE), 6),
+    beta_cv  = round(100 * sd(beta, na.rm = TRUE) / mean(beta, na.rm = TRUE), 1),
+    beta_best = round(beta_all$beta[beta_all$type == type[1] &
+                                      beta_all$job_index == best_job][1], 6),
+    .groups  = "drop"
+  )
+
+beta_stats %>%
+  rename(
+    "Facility type"    = type,
+    "Runs"             = n_runs,
+    "Min β"            = beta_min,
+    "Q25 β"            = beta_q25,
+    "Median β"         = beta_med,
+    "Q75 β"            = beta_q75,
+    "Max β"            = beta_max,
+    "CV% (stability)"  = beta_cv,
+    "Best-run β"       = beta_best
+  ) %>%
+  kable(align = c("l","c","r","r","r","r","r","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE) %>%
+  footnote(general = paste0(
+    "CV% = coefficient of variation across the 10 runs. ",
+    "Lower CV% = more stable estimate. ",
+    "CV% < 10% = very stable; 10–30% = moderate; > 30% = uncertain. ",
+    "Best-run β = estimate from the run with lowest total SSE (Job ", best_job, ")."
+  ))
+```
+
+---
+
+# 4. Best run: observed vs simulated incidence
+
+## What this tells us
+
+This is the primary calibration plot for the **best-performing run** (Job `r best_job`,
+SSE = `r round(best_result$sse_final, 6)`).
+
+Each point is a facility type.  The dashed line is perfect fit (simulated =
+observed).  Error bars show ±1 standard deviation across `r best_result$n_rep_valid`
+independent validation replicates — they represent the **stochastic noise** of
+the simulation, not uncertainty in the data.
+
+**Wide error bars** for a type mean the simulation is inherently noisy for that
+type — usually because those hospitals are small (few beds) or rare in the
+network, so the incidence estimate fluctuates a lot between replicates even at
+the optimal β.
+
+**A good calibration** shows all points close to the dashed line, with error
+bars that overlap the diagonal.
+
+```{r best-obs-vs-sim}
+axis_max <- max(c(best_val$incidence_obs,
+                  best_val$incidence_sim_mean + best_val$incidence_sim_sd)) * 1.12
+
+ggplot(best_val,
+       aes(x = incidence_obs, y = incidence_sim_mean, colour = type)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              colour = "grey40", linewidth = 0.9) +
+  geom_errorbar(aes(ymin = pmax(incidence_sim_mean - incidence_sim_sd, 0),
+                    ymax = incidence_sim_mean + incidence_sim_sd),
+                width = 0, linewidth = 0.9, alpha = 0.5) +
+  geom_point(size = 5) +
+  geom_text(aes(label = type),
+            hjust = -0.12, vjust = 0.4, size = 3.5,
+            show.legend = FALSE) +
+  scale_colour_manual(values = type_colours, na.value = "#555555") +
+  scale_x_continuous(limits = c(0, axis_max)) +
+  scale_y_continuous(limits = c(0, axis_max)) +
+  coord_fixed() +
+  labs(
+    title    = paste0("Simulated vs. observed incidence — Best run (Job ",
+                      best_job, ")"),
+    subtitle = paste0("Dashed = perfect fit  |  ±1 SD across ",
+                      best_result$n_rep_valid, " replicates  |  SSE = ",
+                      round(best_result$sse_final, 4)),
+    x        = "Observed incidence (SPARES, per 1,000 bed-days)",
+    y        = "Simulated incidence (per 1,000 bed-days)",
+    colour   = "Facility type"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title      = element_text(face = "bold"),
+        legend.position = "none",
+        panel.grid.minor = element_blank())
+```
+
+---
+
+# 5. All 10 runs: observed vs simulated
+
+## What this tells us
+
+This faceted plot shows the calibration result for **every run simultaneously**.
+It is the most informative single diagnostic for understanding the reliability
+of the calibration across the whole multi-start procedure.
+
+**What to look for:**
+
+- **Consistent patterns across panels** = the result is robust.  Whether or not
+  a specific run had the lowest SSE, they all produce similar pictures
+- **One or two panels clearly worse** (points far from the diagonal) = those
+  runs got stuck; the multi-start strategy correctly identified and discarded them
+- **Wildly different patterns** = the calibration is unreliable; β is not
+  well-identified by the data and more runs or a wider search may be needed
+- The **SSE value in each panel title** lets you quickly see which panels are good fits
+
+```{r all-runs-facet, fig.height=10, fig.width=12}
+all_summaries %>%
+  mutate(panel_label = paste0("Job ", job_index,
+                               "\nSSE = ", round(sse_total, 4),
+                               ifelse(job_index == best_job, " ★ BEST", ""))) %>%
+  ggplot(aes(x = incidence_obs, y = incidence_sim_mean)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              colour = "grey50") +
+  geom_errorbar(aes(ymin = pmax(incidence_sim_mean - incidence_sim_sd, 0),
+                    ymax = incidence_sim_mean + incidence_sim_sd),
+                width = 0, alpha = 0.4) +
+  geom_point(aes(colour = type), size = 3) +
+  facet_wrap(~ panel_label, ncol = 5) +
+  scale_colour_manual(values = type_colours, na.value = "#555555", name = "Type") +
+  labs(
+    title    = "Observed vs simulated incidence — all 10 France-wide runs",
+    subtitle = "Dashed = perfect fit  |  ★ = best run  |  Error bars = ±1 SD",
+    x        = "Observed (per 1,000 bed-days)",
+    y        = "Simulated (per 1,000 bed-days)"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(plot.title       = element_text(face = "bold"),
+        legend.position  = "bottom",
+        panel.grid.minor = element_blank(),
+        strip.background = element_rect(fill = "grey92"),
+        strip.text       = element_text(size = 9))
+```
+
+---
+
+# 6. Best-run diagnostics {.tabset}
+
+## Quality table
+
+```{r quality-table}
+quality <- best_val %>%
+  mutate(
+    pct_error = round(100 * diff / incidence_obs, 1),
+    ratio     = round(incidence_sim_mean / incidence_obs, 3),
+    cv_sim    = round(100 * incidence_sim_sd / incidence_sim_mean, 1)
+  )
+
+quality %>%
+  select(type, beta, incidence_obs, incidence_sim_mean,
+         incidence_sim_sd, pct_error, ratio, cv_sim, sse) %>%
+  rename(
+    "Facility type"         = type,
+    "β (per day)"           = beta,
+    "Observed"              = incidence_obs,
+    "Simulated (mean)"      = incidence_sim_mean,
+    "Simulated (SD)"        = incidence_sim_sd,
+    "% error"               = pct_error,
+    "Sim/Obs ratio"         = ratio,
+    "CV% (sim noise)"       = cv_sim,
+    "SSE"                   = sse
+  ) %>%
+  kable(digits = 4, align = c("l","r","r","r","r","r","r","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE) %>%
+  footnote(general = paste0(
+    "All incidences per 1,000 bed-days. ",
+    "% error = 100 × (simulated − observed) / observed. ",
+    "CV% = simulation noise (coefficient of variation across replicates). ",
+    "SSE = (simulated − observed)²."
+  ))
+```
+
+**R² (simulated vs observed):** `r round(cor(best_val$incidence_obs, best_val$incidence_sim_mean)^2, 4)`
+
+**Mean absolute error:** `r round(mean(abs(best_val$diff)), 4)` per 1,000 bed-days
+
+**Total SSE:** `r round(best_result$sse_final, 6)`
+
+## Percentage error
+
+```{r pct-error, fig.height=4}
+quality %>%
+  ggplot(aes(x = reorder(type, abs(pct_error)), y = pct_error,
+             fill = pct_error > 0)) +
+  geom_col(width = 0.65) +
+  geom_hline(yintercept = 0, linewidth = 0.7) +
+  geom_text(
+    aes(label = paste0(ifelse(pct_error > 0, "+", ""), pct_error, "%"),
+        hjust = ifelse(pct_error > 0, -0.1, 1.1)),
+    size = 3.8
+  ) +
+  scale_fill_manual(values = c("TRUE" = "#E74C3C", "FALSE" = "#2980B9"),
+                    labels = c("TRUE" = "Over-estimate", "FALSE" = "Under-estimate")) +
+  scale_y_continuous(expand = expansion(mult = c(0.25, 0.25))) +
+  coord_flip() +
+  labs(
+    title    = paste0("% error — best run (Job ", best_job, ")"),
+    subtitle = "% error = 100 × (simulated − observed) / observed",
+    x = NULL, y = "% error", fill = NULL
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"), legend.position = "bottom",
+        panel.grid.minor = element_blank())
+```
+
+## Beta estimates
+
+```{r beta-best, fig.height=4}
+ggplot(best_val,
+       aes(x = reorder(type, beta), y = beta, fill = type)) +
+  geom_col(width = 0.65) +
+  geom_text(aes(label = formatC(beta, format = "e", digits = 2)),
+            hjust = -0.1, size = 3.8) +
+  scale_fill_manual(values = type_colours, na.value = "#555555") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+  coord_flip() +
+  labs(
+    title    = paste0("Optimal β per facility type — France-wide (Job ", best_job, ")"),
+    subtitle = "Daily within-hospital ESBL transmission rate  |  Search range [1×10⁻⁴, 0.05]",
+    x = NULL, y = "β (per day)"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"), legend.position = "none",
+        panel.grid.minor = element_blank())
+```
+
+---
+
+# 7. Overall assessment
+
+```{r overall-assessment}
+sse_ok  <- best_result$sse_final < 0.05
+r2_val  <- cor(best_val$incidence_obs, best_val$incidence_sim_mean)^2
+r2_ok   <- r2_val > 0.90
+mae_val <- mean(abs(best_val$diff))
+mae_ok  <- mae_val < 0.5
+
+# Beta stability: CV% across runs per type
+cv_vals <- beta_stats$beta_cv
+stable  <- all(cv_vals < 30, na.rm = TRUE)
+
+assessment <- data.frame(
+  Metric = c("Best total SSE", "R² (sim vs obs)", "Mean abs. error",
+             "Runs completed", "Beta stability (max CV%)", "Fit quality"),
+  Value = c(
+    round(best_result$sse_final, 6),
+    round(r2_val, 4),
+    paste(round(mae_val, 4), "per 1,000 bed-days"),
+    paste(n_jobs, "of 10"),
+    paste0(round(max(cv_vals, na.rm = TRUE), 1), "%"),
+    ifelse(sse_ok & r2_ok & mae_ok & stable, "✓ Good", "⚠ Review needed")
+  ),
+  Threshold = c("< 0.05 = good", "> 0.90 = good", "< 0.50 = good",
+                "10 = complete", "< 30% = stable", "")
+)
+
+assessment %>%
+  kable(align = c("l","r","l")) %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE) %>%
+  row_spec(6, bold = TRUE,
+           background = ifelse(sse_ok & r2_ok & mae_ok & stable,
+                               "#d5f5e3", "#fdecea"))
+```
+
+---
+
+# 8. Save outputs
+
+```{r save-outputs, results='hide'}
+plot_dir <- file.path(OUT_DIR, "analysis")
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+write.csv2(all_summaries,
+           file.path(plot_dir, "all_jobs_validation_summary.csv"),
+           row.names = FALSE)
+write.csv2(beta_stats,
+           file.path(plot_dir, "beta_stability_across_jobs.csv"),
+           row.names = FALSE)
+write.csv2(quality,
+           file.path(plot_dir, "best_job_quality.csv"),
+           row.names = FALSE)
+write.csv2(sse_by_job,
+           file.path(plot_dir, "sse_by_job.csv"),
+           row.names = FALSE)
+
+# Save best result as warm start for future runs
+warm <- list(
+  beta_type_opt   = setNames(best_val$beta, best_val$type),
+  objective_value = best_result$sse_final,
+  job_index       = best_job,
+  datetime        = Sys.time()
+)
+saveRDS(warm,
+        file.path(dirname(OUT_DIR), "warm_start_france.rds"))
+```
+
+All tables saved to `Outputs/france/analysis/`.
+`warm_start_france.rds` updated with the best β for use in future runs.
+
+---
+
+*Report generated by ARCANE project — MESuRS/Cnam*
+*Model: stochastic SIS on PMSI inter-hospital transfer network*
+*Calibration target: SPARES ESBL incidence by facility type, France-wide*

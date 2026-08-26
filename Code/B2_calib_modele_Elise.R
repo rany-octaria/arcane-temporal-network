@@ -27,7 +27,7 @@ seed_objective <- 1000
 seed_validation <- 50000
 seed_random_starts <- 123
 
-lower_beta <- 1e-5
+lower_beta <- 1e-4 # 0.00001
 upper_beta <- 0.10
 
 n_random_starts <- 8
@@ -114,6 +114,8 @@ run_simulation_summary <- function(beta_vec, alpha, seed = NULL) {
       if (t >= last_year_start) {
         inc_sum_last[i] <- inc_sum_last[i] + new_inf
       }
+      #Calculating daily numbers of cumulative incidence for each day the simulation runs, 
+      # the code looks back one year + new infection
       
       S_loc[i] <- S_loc[i] - new_inf + recov
       I_loc[i] <- I_loc[i] + new_inf - recov

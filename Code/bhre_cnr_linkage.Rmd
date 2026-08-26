@@ -366,7 +366,7 @@ tibble(measure = c("Episodes matching exactly one CNR strain",
 bhre_cnr_matches %>% filter(confidence == "High") %>%
   select(ref_date, family, bhre_mech, cnr_sequencing,
          bhre_facility_name, cnr_facility_name, bhre_city, match_keys) %>%
-  head(10)
+  head(100)
 ```
 
 # Save the results

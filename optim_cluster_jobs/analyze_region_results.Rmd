@@ -1,0 +1,521 @@
+---
+title: "ARCANE — Regional Beta Calibration Diagnostics"
+subtitle: "Grand-Est | ESBL Transmission Rate Estimation"
+author: "ARCANE Project — MESuRS/Cnam"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    fig_width: 9
+    fig_height: 6
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo      = TRUE,
+  warning   = FALSE,
+  message   = FALSE,
+  fig.align = "center"
+)
+```
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(knitr)
+library(kableExtra)
+```
+
+---
+
+# Overview
+
+This report documents the calibration of within-hospital ESBL transmission rates (β)
+for a single French administrative region using a stochastic SIS network model.
+
+## What are we trying to do?
+
+We are estimating **β (beta)** — the daily probability that a susceptible patient
+acquires ESBL from a colonised patient in the same hospital.  One β is estimated
+per facility type (MCO, SSR, etc.) because transmission dynamics differ by care setting.
+
+The calibration works by:
+
+1. Running the simulation thousands of times with different candidate β values
+2. At each candidate, comparing the **simulated** ESBL incidence rate to the
+   **observed** rate from SPARES surveillance data
+3. Finding the β combination that minimises the **SSE** (sum of squared errors)
+   between simulated and observed incidence
+
+## The simulation model
+
+The model is a **SIS (Susceptible → Infected → Susceptible)** compartmental model
+running on the real French inter-hospital transfer network (PMSI data).
+Every simulated day, for every hospital:
+
+- Susceptible patients may acquire ESBL from colonised patients at rate β
+- Colonised patients may clear ESBL naturally (mean colonisation duration ≈ 387 days)
+- Patients are discharged; a fraction transfer to another hospital via the real transfer network
+- Empty beds are filled from the community (5% carry ESBL on admission)
+
+The simulation runs for **2 years**.  Only the **last 365 days** are used to measure
+incidence, allowing the first year to serve as burn-in to reach steady state.
+
+---
+
+```{r load-data}
+# ── Change REGION_NAME to analyse a different region ─────────────────────────
+
+# [1] "Auvergne-Rhône-Alpes"       "Bourgogne-Franche-Comté"    "Bretagne"                   "Centre-Val de Loire"        "Corse"                     
+# [6] "Grand-Est"                  "Hauts-de-France"            "Île-de-France"              "Normandie"                  "Nouvelle-Aquitaine"        
+# [11] "Occitanie"                  "Pays de la Loire"           "Provence-Alpes-Côte d'Azur"
+REGION_NAME <- "Grand-Est"
+region_safe <- gsub("[^A-Za-z0-9_-]", "_", REGION_NAME)
+
+OUT_DIR <- file.path(
+  "C:/Users/octariar/OneDrive - LECNAM/Documents/GitHub/arcane-temporal-network-new/optim_cluster_jobs",
+  "Outputs", "region", region_safe
+)
+
+rds_files <- list.files(OUT_DIR, pattern = "final_validation\\.rds$",
+                         recursive = TRUE, full.names = TRUE)
+if (length(rds_files) == 0) stop("No final_validation.rds found under: ", OUT_DIR)
+rds_files <- sort(rds_files, decreasing = TRUE)
+r <- readRDS(rds_files[1])
+
+val <- r$validation_summary
+
+# Colour palette
+type_colours <- c(
+  "MCO"                             = "#0057B8",
+  "SSR"                             = "#C1392B",
+  "MCO/SSR"                         = "#9B1D8A",
+  "PSY"                             = "#F5A623",
+  "HAD"                             = "#00B4D8",
+  "Cancer centre (CLCC)"            = "#2ECC71",
+  "General public hospital"         = "#0057B8",
+  "Private for profit hospital"     = "#E74C3C",
+  "Private not-for-profit hospital" = "#9B1D8A",
+  "Rehabilitation hospital"         = "#C1392B",
+  "University hospital"             = "#F5A623",
+  "Unknown"                         = "#555555"
+)
+```
+
+---
+
+# 1. Simulation metadata
+
+```{r metadata}
+meta <- data.frame(
+  Parameter = c(
+    "Region",
+    "Hospitals in region (H)",
+    "Calibration types",
+    "Parallel replicates — objective",
+    "Parallel replicates — validation",
+    "Cores used",
+    "Result file"
+  ),
+  Value = c(
+    r$region,
+    r$H_region,
+    paste(names(r$incidence_obs), collapse = ", "),
+    r$n_rep_obj,
+    r$n_rep_valid,
+    r$n_cores,
+    basename(dirname(rds_files[1]))
+  )
+)
+
+kable(meta, col.names = c("Parameter", "Value"), align = c("l","l")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE)
+```
+
+---
+
+# 2. Optimisation convergence {.tabset}
+
+## What this tells us
+
+The Nelder-Mead optimiser was started from **multiple starting points** — each
+a different initial guess for β.  This multi-start strategy reduces the risk of
+the algorithm getting trapped in a local minimum (a β combination that looks
+locally good but is not the global best).
+
+**How to read this section:**
+
+- Each starting point runs a complete Nelder-Mead trajectory
+- The **SSE (sum of squared errors)** at the end of each trajectory tells us
+  how well that starting point's best β fits the data
+- All SSE values being similar = the landscape is well-behaved and the result
+  is reliable
+- One SSE far lower than the others = the others got stuck; reassuring as long
+  as at least one start converged
+- All SSE = Inf = the optimiser completely failed (data/code issue)
+
+The **best checkpoint** mechanism means that even if a starting point's final
+result is slightly worse than an intermediate point it passed through,
+the globally best β ever seen is always recovered.
+
+## Results
+
+```{r convergence}
+convergence_df <- data.frame(
+  Start     = names(r$fit_values),
+  SSE       = round(r$fit_values, 6),
+  Converged = is.finite(r$fit_values)
+) %>% arrange(SSE)
+
+convergence_df %>%
+  mutate(
+    Best   = ifelse(Start == names(r$fit_values)[r$best_fit_id], "★", ""),
+    Status = ifelse(Converged, "✓ Converged", "✗ Did not converge")
+  ) %>%
+  select(Start, SSE, Status, Best) %>%
+  kable(align = c("l","r","l","c")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE) %>%
+  row_spec(which(convergence_df$SSE == min(convergence_df$SSE, na.rm=TRUE)),
+           bold = TRUE, background = "#eaf4fb")
+```
+
+```{r convergence-plot, fig.height=4}
+finite_sse <- convergence_df %>% filter(Converged)
+
+if (nrow(finite_sse) > 0) {
+  ggplot(finite_sse, aes(x = reorder(Start, SSE), y = SSE)) +
+    geom_col(aes(fill = SSE == min(SSE)), width = 0.6, show.legend = FALSE) +
+    geom_text(aes(label = formatC(SSE, digits = 4, format = "f")),
+              hjust = -0.1, size = 3.5) +
+    scale_fill_manual(values = c("FALSE" = "#7fb3d3", "TRUE" = "#0057B8")) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+    coord_flip() +
+    labs(
+      title    = "SSE by starting point",
+      subtitle = "Dark blue = best (lowest SSE). Lower is better.",
+      x = NULL, y = "SSE (sum of squared errors)"
+    ) +
+    theme_bw(base_size = 12) +
+    theme(plot.title = element_text(face = "bold"),
+          panel.grid.minor = element_blank())
+}
+```
+
+---
+
+# 3. Iteration history
+
+```{r load-history}
+history_files <- list.files(OUT_DIR, pattern = "history_objective\\.csv$",
+                              recursive = TRUE, full.names = TRUE)
+hist_df <- if (length(history_files) > 0) {
+  read.table(sort(history_files, decreasing = TRUE)[1],
+             sep = ";", dec = ".", header = TRUE, stringsAsFactors = FALSE)
+} else NULL
+```
+
+## What this tells us
+
+This plot shows how the **best SSE discovered so far** evolved across every
+objective evaluation (every time the simulation was run with a candidate β).
+
+**How to read it:**
+
+- The **x-axis** is the evaluation counter — each tick is one call to the
+  simulator with a specific β
+- The **y-axis** is SSE on a log scale — drops represent improvements in fit
+- **Blue dots** are evaluations that set a new best SSE; grey dots did not improve
+- The **red line** shows the running best SSE — it can only decrease
+- A steep early drop followed by a flat line = quick convergence (good)
+- Continuous small drops throughout = the algorithm is still exploring (may need more iterations)
+- Flat from the start = the warm start was already very close to optimal (best case)
+
+If the red line is still declining steeply at the end, more iterations (`maxit_nm`)
+would improve the result.
+
+```{r history-plot}
+if (!is.null(hist_df) && nrow(hist_df) > 0) {
+  ggplot(hist_df, aes(x = eval_counter, y = objective_value)) +
+    geom_line(colour = "grey80", linewidth = 0.4) +
+    geom_point(aes(colour = is_best), size = 1.8, alpha = 0.7) +
+    geom_line(aes(y = best_value), colour = "#E74C3C",
+              linewidth = 0.9, linetype = "solid") +
+    scale_colour_manual(
+      values = c("FALSE" = "grey65", "TRUE" = "#0057B8"),
+      labels = c("FALSE" = "Evaluated (no improvement)",
+                 "TRUE"  = "New best SSE found")
+    ) +
+    scale_y_log10() +
+    labs(
+      title    = paste("Optimisation convergence history —", REGION_NAME),
+      subtitle = "Red line = running best SSE  |  Blue dots = new best found  |  Log scale",
+      x        = "Objective evaluation number",
+      y        = "SSE (log scale)",
+      colour   = NULL
+    ) +
+    theme_bw(base_size = 12) +
+    theme(plot.title      = element_text(face = "bold"),
+          legend.position = "bottom",
+          panel.grid.minor = element_blank())
+} else {
+  cat("No iteration history file found.")
+}
+```
+
+---
+
+# 4. Observed vs simulated incidence
+
+## What this tells us
+
+This is the **primary calibration diagnostic** — the most important plot in this report.
+
+**What it shows:**
+Each point represents one facility type. The x-axis is the **observed** ESBL
+incidence from SPARES surveillance (real-world data). The y-axis is the
+**simulated** incidence produced by the model using the optimal β.
+
+**How to read it:**
+
+- The **dashed diagonal line** is the perfect-fit line (simulated = observed exactly)
+- Points **on the diagonal** = the model reproduces that type's incidence perfectly
+- Points **above the diagonal** = the model over-estimates incidence for that type
+- Points **below the diagonal** = the model under-estimates incidence for that type
+- **Error bars** show ±1 standard deviation across the `r r$n_rep_valid` validation
+  replicates — they reflect the stochastic variability of the simulation, not
+  uncertainty in the observed data. Wide bars mean the simulation is noisy for
+  that type (usually small hospitals or rare types)
+- All points close to the diagonal with narrow bars = excellent calibration
+
+**What a "good" result looks like:**
+Points within ±20% of the diagonal, with error bars that overlap the diagonal.
+An SSE below ~0.05 is generally considered a good fit for this model.
+
+```{r obs-vs-sim-plot}
+axis_max <- max(c(val$incidence_obs,
+                  val$incidence_sim_mean + val$incidence_sim_sd)) * 1.12
+
+ggplot(val, aes(x = incidence_obs, y = incidence_sim_mean, colour = type)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              colour = "grey40", linewidth = 0.9) +
+  geom_errorbar(aes(ymin = pmax(incidence_sim_mean - incidence_sim_sd, 0),
+                    ymax = incidence_sim_mean + incidence_sim_sd),
+                width = 0, linewidth = 0.9, alpha = 0.5) +
+  geom_point(size = 5) +
+  geom_text(aes(label = type),
+            hjust = -0.12, vjust = 0.4, size = 3.5,
+            show.legend = FALSE) +
+  scale_colour_manual(values = type_colours, na.value = "#555555") +
+  scale_x_continuous(limits = c(0, axis_max)) +
+  scale_y_continuous(limits = c(0, axis_max)) +
+  coord_fixed() +
+  labs(
+    title    = paste("Simulated vs. observed ESBL incidence —", REGION_NAME),
+    subtitle = paste0("Dashed line = perfect fit  |  Error bars = ±1 SD across ",
+                      r$n_rep_valid, " replicates  |  SSE = ",
+                      round(r$sse_final, 4)),
+    x        = "Observed incidence (SPARES, per 1,000 bed-days)",
+    y        = "Simulated incidence (per 1,000 bed-days)",
+    colour   = "Facility type"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title      = element_text(face = "bold"),
+        legend.position = "none",
+        panel.grid.minor = element_blank())
+```
+
+## Numerical summary
+
+```{r quality-table}
+quality <- val %>%
+  mutate(
+    pct_error = round(100 * diff / incidence_obs, 1),
+    ratio     = round(incidence_sim_mean / incidence_obs, 3),
+    cv_sim    = round(100 * incidence_sim_sd / incidence_sim_mean, 1)
+  ) %>%
+  select(type, incidence_obs, incidence_sim_mean, incidence_sim_sd,
+         pct_error, ratio, cv_sim, beta, sse)
+
+quality %>%
+  rename(
+    "Facility type"         = type,
+    "Observed (SPARES)"     = incidence_obs,
+    "Simulated (mean)"      = incidence_sim_mean,
+    "Simulated (SD)"        = incidence_sim_sd,
+    "% error"               = pct_error,
+    "Sim/Obs ratio"         = ratio,
+    "CV% (sim variability)" = cv_sim,
+    "β (per day)"           = beta,
+    "SSE"                   = sse
+  ) %>%
+  kable(digits = 4, align = c("l","r","r","r","r","r","r","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE) %>%
+  footnote(general = paste0(
+    "% error = 100 × (simulated − observed) / observed. ",
+    "CV% = coefficient of variation of the simulated incidence across replicates ",
+    "(measures simulation noise, not calibration error). ",
+    "SSE = (simulated − observed)²."
+  ))
+```
+
+**R² between simulated and observed:**
+`r round(cor(val$incidence_obs, val$incidence_sim_mean)^2, 4)`
+
+**Mean absolute error:**
+`r round(mean(abs(val$diff)), 4)` per 1,000 bed-days
+
+**Total SSE:**
+`r round(r$sse_final, 6)`
+
+---
+
+# 5. Beta estimates by facility type
+
+## What this tells us
+
+**β (beta)** is the key output of the calibration. It represents the **daily
+probability of ESBL transmission** from one colonised patient to one susceptible
+patient sharing the same hospital, assuming they are in contact.
+
+Specifically, at each time step the force of infection felt by susceptible patients
+in hospital h is:
+```
+λ_h = 1 − exp(−β_h × I_h / N_h)
+```
+where I_h is the number of colonised patients and N_h is the total census.
+
+**Interpreting the values:**
+
+- A **higher β** means faster within-hospital spread — more transmissible environment
+  (higher contact rates, more procedures, weaker infection control, etc.)
+- A **lower β** means slower spread — lower contact rates or better infection control
+- MCO (acute care) typically has higher β than SSR (rehabilitation) because of
+  higher patient turnover, more invasive procedures, and often more vulnerable patients
+- **β is not directly observable** — it is a model parameter inferred from the
+  incidence data. Its value depends on the model assumptions (LOS, transfers, etc.)
+
+**Important:** β is specific to this model. It cannot be directly compared to
+transmission rates from models with different structures.
+
+```{r beta-plot, fig.height=4}
+ggplot(val, aes(x = reorder(type, beta), y = beta, fill = type)) +
+  geom_col(width = 0.65) +
+  geom_text(aes(label = formatC(beta, format = "e", digits = 2)),
+            hjust = -0.1, size = 3.8) +
+  scale_fill_manual(values = type_colours, na.value = "#555555") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+  coord_flip() +
+  labs(
+    title    = paste("Optimal β per facility type —", REGION_NAME),
+    subtitle = paste0("Daily within-hospital ESBL transmission rate  |  ",
+                      "Search range: [1×10⁻⁴, 0.05]"),
+    x = NULL, y = "β (per day)"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title      = element_text(face = "bold"),
+        legend.position = "none",
+        panel.grid.minor = element_blank())
+```
+
+---
+
+# 6. Percentage error by facility type
+
+## What this tells us
+
+This plot directly shows **how wrong** the model is for each facility type,
+expressed as a percentage of the observed incidence.
+
+**How to read it:**
+
+- **Positive bar (red)** = model over-estimates incidence for this type.
+  The simulated hospitals of this type produce more ESBL cases than observed.
+  Possible causes: β too high for this type, or the model assumes more
+  within-hospital contacts than actually occur
+- **Negative bar (blue)** = model under-estimates incidence.
+  The simulation produces fewer cases than observed.
+  Possible causes: β too low, or the observed incidence is inflated by
+  reporting artefacts not captured in the model
+- **Short bars (close to 0)** = good fit for that type
+- **Long bars (>20%)** = poor fit; the optimal β found for other types
+  may be pulling this type away from its own optimum
+
+This plot is especially useful for identifying which facility types are
+**hardest to calibrate** — often types with few hospitals in the region
+(small sample → noisy SPARES estimate) or types with unusual epidemiology
+(e.g. CLCC cancer centres with no SPARES data).
+
+```{r pct-error-plot, fig.height=4}
+quality %>%
+  ggplot(aes(x = reorder(type, abs(pct_error)), y = pct_error,
+             fill = pct_error > 0)) +
+  geom_col(width = 0.65) +
+  geom_hline(yintercept = 0, linewidth = 0.7) +
+  geom_text(
+    aes(label = paste0(ifelse(pct_error > 0, "+", ""), pct_error, "%"),
+        hjust = ifelse(pct_error > 0, -0.1, 1.1)),
+    size = 3.8
+  ) +
+  scale_fill_manual(
+    values = c("TRUE" = "#E74C3C", "FALSE" = "#2980B9"),
+    labels = c("TRUE" = "Over-estimate", "FALSE" = "Under-estimate")
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0.25, 0.25))) +
+  coord_flip() +
+  labs(
+    title    = paste("Percentage error —", REGION_NAME),
+    subtitle = "% error = 100 × (simulated − observed) / observed",
+    x = NULL, y = "% error", fill = NULL
+  ) +
+  theme_bw(base_size = 13) +
+  theme(plot.title      = element_text(face = "bold"),
+        legend.position = "bottom",
+        panel.grid.minor = element_blank())
+```
+
+---
+
+# 7. Overall assessment
+
+```{r assessment}
+sse_ok   <- r$sse_final < 0.05
+r2_val   <- cor(val$incidence_obs, val$incidence_sim_mean)^2
+r2_ok    <- r2_val > 0.90
+mae_val  <- mean(abs(val$diff))
+mae_ok   <- mae_val < 0.5
+conv_ok  <- sum(is.finite(r$fit_values)) >= 2
+
+assessment <- data.frame(
+  Metric    = c("Total SSE", "R² (sim vs obs)", "Mean abs. error",
+                "Starts converged", "Fit quality"),
+  Value     = c(round(r$sse_final, 6),
+                round(r2_val, 4),
+                paste(round(mae_val, 4), "per 1,000 bed-days"),
+                paste(sum(is.finite(r$fit_values)), "of", length(r$fit_values)),
+                ifelse(sse_ok & r2_ok & mae_ok, "✓ Good", "⚠ Review needed")),
+  Threshold = c("< 0.05 = good", "> 0.90 = good",
+                "< 0.50 = good", "≥ 2 = reliable", "")
+)
+
+assessment %>%
+  kable(align = c("l","r","l")) %>%
+  kable_styling(bootstrap_options = c("striped","hover"),
+                full_width = FALSE) %>%
+  row_spec(5, bold = TRUE,
+           background = ifelse(sse_ok & r2_ok & mae_ok, "#d5f5e3", "#fdecea"))
+```
+
+---
+
+*Report generated by ARCANE project — MESuRS/Cnam*
+*Model: stochastic SIS on PMSI inter-hospital transfer network*
+*Calibration target: SPARES ESBL incidence by facility type × region*
