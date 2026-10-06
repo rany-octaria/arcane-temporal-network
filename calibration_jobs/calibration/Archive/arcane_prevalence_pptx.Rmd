@@ -1,0 +1,372 @@
+---
+title: "ARCANE — AMR Transmissibility Calibration"
+subtitle: "Within-Hospital Beta Estimation via Steady-State Prevalence"
+author: "MESuRS/Cnam"
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
+  powerpoint_presentation:
+    slide_level: 2
+    fig_width: 10
+    fig_height: 5.2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, dpi=150)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(knitr)
+```
+
+```{r load-data}
+LOCAL_ROOT <- "C:/Users/octariar/OneDrive - LECNAM/Documents/GitHub/arcane-temporal-network-new/calibration_jobs"
+RDS_FILE   <- file.path(LOCAL_ROOT, "Outputs", "prevalence", "local", "results_local.rds")
+
+if (!file.exists(RDS_FILE)) stop("Run optim_prevalence_local.R first.\nExpected: ", RDS_FILE)
+
+res          <- readRDS(RDS_FILE)
+scalar_df    <- res$scalar_df
+type_df      <- res$type_df
+beta_summary <- res$beta_summary
+amr_mapping  <- res$amr_mapping
+
+# AMR long targets for reference lines
+amr_long <- tribble(
+  ~pathogen,  ~prev_low, ~prev_mid, ~prev_high,
+  "MRSA",      0.010,     0.115,     0.250,
+  "VRE",       0.005,     0.080,     0.180,
+  "ESBL-E",    0.020,     0.120,     0.300,
+  "CRE",       0.002,     0.030,     0.100,
+  "CRAB",      0.010,     0.070,     0.200
+) %>%
+  pivot_longer(starts_with("prev_"),
+               names_to="tier", names_prefix="prev_",
+               values_to="target_prevalence") %>%
+  mutate(tier = factor(tier, c("low","mid","high"),
+                        labels = c("Low","Mid","High")))
+
+NAVY  <- "0D3B66"
+TEAL  <- "1A7A8A"
+GOLD  <- "F4A623"
+tier_pal <- c(Low="#009E73", Mid="#E69F00", High="#D55E00")
+
+type_pal <- c(
+  "MCO"="#0057B8","SSR"="#C1392B","MCO/SSR"="#9B1D8A",
+  "PSY"="#F5A623","HAD"="#00B4D8","Unknown"="#555555"
+)
+
+theme_ppt <- function(base_size=14) {
+  theme_bw(base_size=base_size) +
+    theme(plot.title       = element_text(face="bold", size=base_size+1),
+          plot.subtitle    = element_text(colour="grey40", size=base_size-1),
+          panel.grid.minor = element_blank(),
+          legend.position  = "right",
+          strip.background = element_rect(fill="grey93"),
+          strip.text       = element_text(face="bold"))
+}
+```
+
+# Overview
+
+## What we calibrated
+
+- **Model:** Stochastic SIS metapopulation on the PMSI inter-hospital transfer network
+- **Parameter:** Within-hospital transmission rate beta (per day)
+- **Method:** Grid search — run model to steady state, measure endemic prevalence
+- **Beta grid:** `r sprintf("%.3f", min(scalar_df$beta_within))` to `r sprintf("%.3f", max(scalar_df$beta_within))` (`r length(unique(scalar_df$beta_within))` values)
+- **Replicates:** `r max(scalar_df$rep_id)` per beta value
+- **Run length:** `r res$params$MAX_DAYS` days (always run to end)
+- **Steady state:** CV of daily prevalence < 10% in last `r res$params$SS_WINDOW` days for >= 80% of hospitals
+
+---
+
+**Targets:** ECDC EARS-Net 2022 — three tiers (Low / Mid / High) for 5 AMR pathogens
+
+| Pathogen | Low | Mid | High |
+|---|---|---|---|
+| MRSA | 1% | 11.5% | 25% |
+| VRE | 0.5% | 8% | 18% |
+| ESBL-E | 2% | 12% | 30% |
+| CRE | 0.2% | 3% | 10% |
+| CRAB | 1% | 7% | 20% |
+
+# Calibration Quality
+
+## Steady-state achievement by beta
+
+```{r ss-rate, fig.height=5}
+beta_summary %>%
+  ggplot(aes(x=beta_within, y=prop_ss*100, fill=prop_ss)) +
+  geom_col(width=diff(range(beta_summary$beta_within)) /
+             length(unique(beta_summary$beta_within)) * 0.8) +
+  geom_hline(yintercept=80, linetype="dashed", colour="#e74c3c",
+             linewidth=0.9) +
+  geom_text(aes(label=paste0(round(prop_ss*100), "%")),
+            vjust=-0.4, size=3.5) +
+  scale_fill_gradient(low="#aed6f1", high="#1a5276", guide="none") +
+  scale_x_continuous(labels=function(x) sprintf("%.3f",x)) +
+  scale_y_continuous(limits=c(0,112), expand=expansion(mult=c(0,0))) +
+  labs(title="% of replicates reaching steady state by beta",
+       subtitle="Dashed = 80% threshold. Higher beta reaches SS more consistently.",
+       x="beta (per day)", y="% reaching steady state") +
+  theme_ppt() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+## Prevalence at end of simulation
+
+```{r prev-distribution, fig.height=5}
+scalar_df %>%
+  mutate(beta_label=sprintf("%.3f", beta_within)) %>%
+  ggplot(aes(x=reorder(beta_label, beta_within),
+             y=overall_prevalence*100)) +
+  geom_boxplot(fill="#aed6f1", colour="#1a5276",
+               width=0.6, outlier.shape=21, outlier.size=1.5) +
+  scale_y_continuous(labels=function(x) paste0(x,"%")) +
+  labs(title="Distribution of network-wide prevalence across replicates",
+       subtitle="Box = IQR across replicates | Each box = one beta value",
+       x="beta (per day)", y="Overall prevalence (%)") +
+  theme_ppt() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+# Beta-Prevalence Relationship
+
+## How beta drives endemic prevalence
+
+```{r beta-prev-curve, fig.height=5}
+ggplot(beta_summary, aes(x=beta_within)) +
+  geom_ribbon(aes(ymin=prev_q25*100, ymax=prev_q75*100),
+              fill="#56B4E9", alpha=0.3) +
+  geom_line(aes(y=prev_median*100), colour="#0072B2",
+            linewidth=1.3) +
+  geom_point(aes(y=prev_median*100), colour="#0072B2", size=3) +
+  geom_hline(data=amr_long %>% filter(pathogen=="ESBL-E"),
+             aes(yintercept=target_prevalence*100, colour=tier),
+             linetype="dashed", linewidth=1.0) +
+  scale_colour_manual(values=tier_pal, name="ESBL-E tier") +
+  scale_x_continuous(labels=function(x) sprintf("%.3f",x)) +
+  scale_y_continuous(labels=function(x) paste0(x,"%")) +
+  labs(title="Beta vs steady-state prevalence",
+       subtitle="Median +/- IQR | Dashed = ESBL-E Low/Mid/High targets",
+       x="beta (per day)", y="Network prevalence (%)") +
+  theme_ppt() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+## Nationwide incidence by beta
+
+```{r incidence-curve, fig.height=5}
+ggplot(beta_summary, aes(x=beta_within, y=inc_median)) +
+  geom_area(fill="#f0b27a", alpha=0.4) +
+  geom_line(colour="#e67e22", linewidth=1.3) +
+  geom_point(colour="#e67e22", size=3) +
+  geom_text(aes(label=round(inc_median,2)), vjust=-0.7, size=3.3) +
+  scale_x_continuous(labels=function(x) sprintf("%.3f",x)) +
+  scale_y_continuous(expand=expansion(mult=c(0,0.2))) +
+  labs(title="Nationwide incidence by beta",
+       subtitle=paste0("Median across replicates | ", res$params$INC_WINDOW,
+                        "-day lookback"),
+       x="beta (per day)",
+       y="Incidence (per 1,000 bed-days)") +
+  theme_ppt() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+## Prevalence trajectories across all betas
+
+```{r prev-heatmap, fig.height=5}
+# One row per rep, visualised as a heatmap of prevalence by beta
+scalar_df %>%
+  mutate(beta_label=sprintf("%.3f", beta_within)) %>%
+  ggplot(aes(x=reorder(beta_label, beta_within),
+             y=factor(rep_id), fill=overall_prevalence*100)) +
+  geom_tile(colour="white", linewidth=0.3) +
+  geom_text(aes(label=round(overall_prevalence*100, 1)),
+            size=2.4, colour="white") +
+  scale_fill_gradientn(
+    colours=c("#eaf2ff","#2980b9","#1a5276","#0d2d4d"),
+    name="Prevalence\n(%)") +
+  labs(title="Steady-state prevalence — each cell is one replicate",
+       subtitle="Darker = higher endemic prevalence | Horizontal = rep variation",
+       x="beta (per day)", y="Replicate") +
+  theme_ppt(12) +
+  theme(axis.text.x=element_text(angle=45, hjust=1),
+        panel.grid=element_blank())
+```
+
+## Facility-type incidence by beta
+
+```{r type-incidence, fig.height=5.5}
+type_df %>%
+  group_by(beta_within, type) %>%
+  summarise(inc_med=median(inc_1000, na.rm=TRUE), .groups="drop") %>%
+  mutate(beta_label=sprintf("%.3f", beta_within)) %>%
+  ggplot(aes(x=reorder(beta_label, beta_within),
+             y=inc_med, colour=type, group=type)) +
+  geom_line(linewidth=1.1) +
+  geom_point(size=2.5) +
+  scale_colour_manual(values=type_pal, na.value="#555555",
+                      name="Facility type") +
+  scale_y_continuous(expand=expansion(mult=c(0,0.1))) +
+  labs(title="Facility-type incidence across the beta grid",
+       subtitle="Median across replicates | per 1,000 bed-days",
+       x="beta (per day)", y="Incidence (per 1,000 bed-days)") +
+  theme_ppt(12) +
+  theme(axis.text.x=element_text(angle=45, hjust=1),
+        legend.position="right")
+```
+
+# AMR Tier Mapping
+
+## Which beta hits which pathogen prevalence?
+
+```{r amr-heatmap, fig.height=5}
+amr_mapping %>%
+  mutate(
+    label=sprintf("b=%.4f\n%.1f%%", beta_within, prev_median*100),
+    fit_col=case_when(
+      fit=="Excellent" ~ "#1a9641",
+      fit=="Good"      ~ "#a6d96a",
+      fit=="Fair"      ~ "#fdae61",
+      TRUE             ~ "#d73027"
+    )
+  ) %>%
+  ggplot(aes(x=tier,
+             y=reorder(pathogen, -beta_within),
+             fill=prev_median*100)) +
+  geom_tile(colour="white", linewidth=1.5) +
+  geom_text(aes(label=label), size=3.8, colour="white", fontface="bold") +
+  scale_fill_gradientn(
+    colours=c("#009E73","#E69F00","#D55E00"),
+    name="Simulated\nprevalence (%)") +
+  scale_x_discrete(position="top") +
+  labs(title="Best-fit beta per AMR pathogen and prevalence tier",
+       subtitle="Values show: recommended beta (top), achieved prevalence (bottom)",
+       x="Prevalence tier", y=NULL) +
+  theme_minimal(base_size=14) +
+  theme(panel.grid=element_blank(),
+        plot.title=element_text(face="bold"),
+        axis.text.y=element_text(face="italic", size=13))
+```
+
+## Recommended beta values — full table
+
+```{r amr-table}
+amr_mapping %>%
+  select(pathogen, tier, target_prevalence, beta_within,
+         prev_median, inc_median, fit) %>%
+  mutate(
+    target_prevalence = paste0(round(target_prevalence*100, 1), "%"),
+    prev_median       = paste0(round(prev_median*100, 1), "%"),
+    beta_within       = formatC(beta_within, format="e", digits=3),
+    inc_median        = round(inc_median, 3)
+  ) %>%
+  arrange(pathogen, tier) %>%
+  kable(col.names=c("Pathogen","Tier","Target prev.",
+                     "Recommended beta","Achieved prev.",
+                     "Incidence","Fit"),
+        align=c("l","l","r","r","r","r","c"))
+```
+
+# Recommended Betas
+
+## Low-transmissibility scenario (VRE / CRE range)
+
+```{r low-betas}
+low_betas <- amr_mapping %>%
+  filter(tier=="Low") %>%
+  arrange(pathogen) %>%
+  select(pathogen, beta_within, prev_median, inc_median, fit)
+
+low_betas %>%
+  mutate(beta_within=formatC(beta_within, format="e", digits=3),
+         prev_median=paste0(round(prev_median*100,1),"%"),
+         inc_median=round(inc_median,3)) %>%
+  kable(col.names=c("Pathogen","Beta","Achieved prevalence",
+                     "Incidence (per 1k bd)","Fit"),
+        align=c("l","r","r","r","c"),
+        caption="Low-tier betas: representing pathogens with low endemic burden")
+```
+
+Beta range: **`r formatC(min(low_betas$beta_within), format='e', digits=2)`** to **`r formatC(max(low_betas$beta_within), format='e', digits=2)`**
+
+## Mid-transmissibility scenario (MRSA / ESBL-E range)
+
+```{r mid-betas}
+mid_betas <- amr_mapping %>%
+  filter(tier=="Mid") %>%
+  arrange(pathogen) %>%
+  select(pathogen, beta_within, prev_median, inc_median, fit)
+
+mid_betas %>%
+  mutate(beta_within=formatC(beta_within, format="e", digits=3),
+         prev_median=paste0(round(prev_median*100,1),"%"),
+         inc_median=round(inc_median,3)) %>%
+  kable(col.names=c("Pathogen","Beta","Achieved prevalence",
+                     "Incidence (per 1k bd)","Fit"),
+        align=c("l","r","r","r","c"),
+        caption="Mid-tier betas: moderate endemic burden pathogens")
+```
+
+Beta range: **`r formatC(min(mid_betas$beta_within), format='e', digits=2)`** to **`r formatC(max(mid_betas$beta_within), format='e', digits=2)`**
+
+## High-transmissibility scenario (MRSA / ESBL-E high range)
+
+```{r high-betas}
+high_betas <- amr_mapping %>%
+  filter(tier=="High") %>%
+  arrange(pathogen) %>%
+  select(pathogen, beta_within, prev_median, inc_median, fit)
+
+high_betas %>%
+  mutate(beta_within=formatC(beta_within, format="e", digits=3),
+         prev_median=paste0(round(prev_median*100,1),"%"),
+         inc_median=round(inc_median,3)) %>%
+  kable(col.names=c("Pathogen","Beta","Achieved prevalence",
+                     "Incidence (per 1k bd)","Fit"),
+        align=c("l","r","r","r","c"),
+        caption="High-tier betas: high endemic burden pathogens")
+```
+
+Beta range: **`r formatC(min(high_betas$beta_within), format='e', digits=2)`** to **`r formatC(max(high_betas$beta_within), format='e', digits=2)`**
+
+## Summary: beta ranges for seeding study
+
+```{r summary-betas, fig.height=4.5}
+amr_mapping %>%
+  ggplot(aes(x=reorder(pathogen, beta_within),
+             y=beta_within, colour=tier, shape=tier)) +
+  geom_point(size=5, alpha=0.9) +
+  geom_line(aes(group=tier), linewidth=0.8, alpha=0.6) +
+  scale_colour_manual(values=tier_pal, name="Tier") +
+  scale_shape_manual(values=c(Low=15, Mid=17, High=19), name="Tier") +
+  scale_y_continuous(labels=scientific) +
+  coord_flip() +
+  labs(title="Recommended beta values by pathogen and tier",
+       subtitle="Use these as beta inputs for the seeding simulation study",
+       x=NULL, y="beta (per day)") +
+  theme_ppt() +
+  theme(legend.position="right")
+```
+
+# Next Steps
+
+## From calibration to seeding study
+
+- **Calibrated beta values** provide the transmission input for the ARCANE seeding study
+- **Low / Mid / High scenarios** represent plausible ranges across AMR pathogens
+- **Next:** seed a novel ARB into each candidate introduction facility under each beta scenario and track spread across the French hospital transfer network
+
+---
+
+**Three seeding simulation arms:**
+
+1. **Low beta** (pi_vec = 0.001, N_seed = 5) — conservative spread, high extinction probability
+2. **Mid beta** (pi_vec = 0.001, N_seed = 5) — moderate spread, some facilities sustain transmission
+3. **High beta** (pi_vec = 0.001, N_seed = 5) — substantial spread, network-wide dissemination risk
+
+Seed locations tested: highest in-degree, highest out-degree, highest betweenness, largest hospital, largest outgoing transfers, random MCO / SSR / MCO-SSR
+
+*`r format(Sys.time(), "%B %Y")` | ARCANE Project — Task 4.3 | MESuRS/Cnam*

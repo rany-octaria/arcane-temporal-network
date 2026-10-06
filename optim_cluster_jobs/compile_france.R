@@ -12,7 +12,9 @@
 library(dplyr)
 
 # ── Set the date you want to compile ─────────────────────────────────────────
-TARGET_DATE <- "20260821"   # August 21 2026 — change as needed
+TARGET_DATE <- "20260828"   # August 21 2026 — change as needed
+
+
 
 OUT_DIR <- file.path(
   "C:/Users/octariar/OneDrive - LECNAM/Documents/GitHub/arcane-temporal-network-new/optim_cluster_jobs",

@@ -1,0 +1,567 @@
+---
+title: "ARCANE — Novel Pathogen Seeding Analysis"
+subtitle: "Network-level vs facility-level incidence and prevalence by seeding location"
+author: "MESuRS/Cnam"
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    code_folding: hide
+    fig_width: 11
+    fig_height: 5.5
+  powerpoint_presentation:
+    slide_level: 2
+    fig_width: 11
+    fig_height: 5.2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, dpi=150)
+```
+
+```{r libraries}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(scales)
+
+LOCAL_ROOT   <- "C:/Users/octariar/OneDrive - LECNAM/Documents/GitHub/arcane-temporal-network-new/calibration_jobs"
+COMPILED_DIR <- file.path(LOCAL_ROOT, "Outputs", "seeding_novel", "compiled")
+OUT_DIR      <- file.path(COMPILED_DIR, "analysis")
+dir.create(OUT_DIR, recursive=TRUE, showWarnings=FALSE)
+
+csv_file <- list.files(COMPILED_DIR, "seeding_summary_compiled\\.csv$", full.names=TRUE)
+rds_file <- list.files(COMPILED_DIR, "compiled_seeding_novel.*\\.rds$",  full.names=TRUE)
+
+if (length(csv_file) == 0)
+  stop("seeding_summary_compiled.csv not found in: ", COMPILED_DIR)
+
+df_raw <- read.csv(tail(sort(csv_file), 1), stringsAsFactors=FALSE)
+
+has_traj <- FALSE
+if (length(rds_file) > 0) {
+  tryCatch({
+    res      <- readRDS(tail(sort(rds_file), 1))
+    traj_raw <- res$traj_df
+    has_traj <- !is.null(traj_raw) && nrow(traj_raw) > 0
+    message("Trajectories: ", format(nrow(traj_raw), big.mark=","), " rows")
+  }, error=function(e) message("RDS load failed: ", e$message))
+}
+message("Summary rows: ", nrow(df_raw))
+```
+
+```{r prep}
+df <- df_raw %>%
+  mutate(
+    tier = factor(tier, levels=c("Low","Moderate")),
+    seed_type = factor(seed_type,
+                       levels=c("fixed","type_random"),
+                       labels=c("Network-central","Facility-type random")),
+    seed_rule_short = case_when(
+      grepl("betweenness", seed_rule) ~ "Network hub",
+      seed_rule == "random_MCO"       ~ "Random MCO",
+      seed_rule == "random_SSR"       ~ "Random SSR",
+      seed_rule == "random_MCO_SSR"   ~ "Random MCO/SSR",
+      TRUE                            ~ seed_rule
+    ),
+    ever_extinct = as.logical(ever_extinct),
+    # Prevalence capped at 100% — capacity overflow bug in transfers
+    net_ss_prev_capped    = pmin(net_ss_prev_pct,         100),
+    fac_ss_prev_capped    = pmin(fac_ss_prev_mean_pct,    100),
+    # SS proxy: ratio of last-30-day incidence to overall mean
+    ss_ratio   = if_else(net_cumulative_inc > 0,
+                          net_ss_inc / net_cumulative_inc, NA_real_),
+    ss_reached = !is.na(ss_ratio) & ss_ratio >= 0.9 & ss_ratio <= 1.1
+  )
+
+df_alive <- df %>% filter(!ever_extinct)
+
+tier_pal <- c(Low="#009E73", Moderate="#E69F00")
+type_pal <- c(`Network-central`="#0057B8",
+               `Facility-type random`="#C1392B")
+
+theme_arc <- function(bs=12)
+  theme_bw(base_size=bs) +
+  theme(plot.title=element_text(face="bold"),
+        plot.subtitle=element_text(colour="grey40", size=rel(0.85)),
+        panel.grid.minor=element_blank(),
+        legend.position="right",
+        strip.background=element_rect(fill="grey92"),
+        strip.text=element_text(face="bold"))
+```
+
+---
+
+# Definitions
+
+## Spatial scales and metric formulas
+
+```{r defs-table}
+tibble::tribble(
+  ~Scale, ~Metric, ~Formula, ~Note,
+  "Network-level\n(national, bed-weighted)",
+  "net_ss_inc",
+  "sum(new_inf) / sum(occupied_beds) x 1000",
+  "Larger hospitals dominate. Comparable to national HAI surveillance.",
+  "Facility-level\n(unweighted mean)",
+  "fac_ss_inc_mean",
+  "mean(new_inf[h] / N_loc[h] x 1000) over active hospitals",
+  "Equal weight per facility. Small rural = large CHU.",
+  "Network-level\n(national, bed-weighted)",
+  "net_ss_prev_pct",
+  "sum(I_loc) / total_beds x 100",
+  "CAPPED at 100%. Values above = simulation overflow from transfers.",
+  "Facility-level\n(unweighted mean)",
+  "fac_ss_prev_mean_pct",
+  "mean(I_loc[h] / beds[h]) x 100",
+  "CAPPED at 100%. Same overflow issue."
+) %>%
+  kable(caption="Metric definitions. Incidence = primary outcome (no overflow). Prevalence capped at 100%.") %>%
+  kable_styling(bootstrap_options=c("striped","hover"), full_width=TRUE) %>%
+  column_spec(1, bold=TRUE, width="18%") %>%
+  column_spec(3, width="30%", monospace=TRUE) %>%
+  row_spec(3:4, background="#fff3cd")
+```
+
+## Steady-state definition
+
+A simulation is classified as having reached steady state when the mean incidence in the **last 30 days** is within **10%** of the overall mean daily incidence (ratio 0.9–1.1). Ratio > 1.1 = epidemic still growing; ratio < 0.9 = declining.
+
+---
+
+# Overview
+
+```{r overview, results='asis'}
+pct_ext <- round(mean(df$ever_extinct)*100, 1)
+pct_ss  <- round(mean(df_alive$ss_reached, na.rm=TRUE)*100, 1)
+
+cat(sprintf(
+  "**Novel pathogen | pi_vec = 0 | %d simulations | %d tiers | %d seed rules**  \n
+   Extinct: **%.1f%%** | Reached steady state: **%.1f%%** of non-extinct  \n
+   **Key finding: %d of %d non-extinct sims still growing at day 730**",
+  nrow(df), n_distinct(df$tier), n_distinct(df$seed_rule),
+  pct_ext, pct_ss,
+  sum(!df_alive$ss_reached, na.rm=TRUE), nrow(df_alive)
+))
+```
+
+---
+
+# Part 1 — Extinction and steady state
+
+## 1.1 Extinction by seed rule and tier
+
+```{r extinction, fig.height=5}
+df %>%
+  group_by(tier, seed_rule_short) %>%
+  summarise(pct=round(mean(ever_extinct)*100,1), n=n(), .groups="drop") %>%
+  ggplot(aes(x=reorder(seed_rule_short, pct), y=pct, fill=tier)) +
+  geom_col(position=position_dodge(0.7), width=0.6, alpha=0.88) +
+  geom_text(aes(label=paste0(pct,"%")),
+            position=position_dodge(0.7), hjust=-0.15, size=3.2) +
+  scale_fill_manual(values=tier_pal, name="Tier") +
+  coord_flip() +
+  scale_y_continuous(limits=c(0,25), expand=expansion(mult=c(0,0.05))) +
+  labs(title="Extinction rate by seed rule and tier",
+       subtitle="pi_vec = 0: no community re-importation — pathogen spreads only via transfers",
+       x=NULL, y="Simulations extinct (%)") +
+  theme_arc()
+```
+
+## 1.2 Did simulations reach steady state?
+
+```{r ss-ratio, fig.height=4}
+df_alive %>% filter(!is.na(ss_ratio)) %>%
+  ggplot(aes(x=ss_ratio, fill=tier)) +
+  geom_histogram(bins=40, alpha=0.7, position="identity") +
+  geom_vline(xintercept=c(0.9,1.1), linetype="dashed",
+             colour="grey30", linewidth=0.8) +
+  annotate("rect", xmin=0.9, xmax=1.1, ymin=-Inf, ymax=Inf,
+           fill="grey70", alpha=0.2) +
+  annotate("text", x=1.0, y=Inf, label="Stable\nzone",
+           vjust=2, size=3, colour="grey30") +
+  scale_fill_manual(values=tier_pal, name="Tier") +
+  labs(title="Steady-state indicator distribution",
+       subtitle="ratio = net_ss_inc / net_cumulative_inc | stable zone = 0.9-1.1 (shaded)",
+       x="SS ratio", y="Count") +
+  theme_arc()
+```
+
+---
+
+# Part 2 — Incidence (primary outcome)
+
+*Per 1,000 patient-days. Not affected by capacity overflow. Each dot = one simulation replicate.*
+
+## 2.1 National steady-state incidence by seed rule
+
+```{r net-inc-violin, fig.height=5.5}
+ggplot(df_alive, aes(x=reorder(seed_rule_short, net_ss_inc),
+                      y=net_ss_inc, fill=tier)) +
+  geom_violin(position=position_dodge(0.8), alpha=0.55,
+              trim=TRUE, scale="width") +
+  geom_boxplot(position=position_dodge(0.8), width=0.12,
+               outlier.shape=NA, fill="white",
+               colour="grey30", linewidth=0.6) +
+  geom_jitter(aes(colour=tier),
+              position=position_jitterdodge(jitter.width=0.07,
+                                             dodge.width=0.8),
+              size=1.5, alpha=0.55) +
+  scale_fill_manual(values=tier_pal,   name="Tier") +
+  scale_colour_manual(values=tier_pal, name="Tier", guide="none") +
+  coord_flip() +
+  labs(title="National steady-state incidence by seed rule (last 30 days)",
+       subtitle="sum(new_inf)/sum(occupied_beds) x 1000 | each dot = 1 simulation",
+       x=NULL, y="Network incidence (per 1,000 patient-days)") +
+  theme_arc()
+```
+
+## 2.2 Facility-level steady-state incidence by seed rule
+
+```{r fac-inc-violin, fig.height=5.5}
+ggplot(df_alive, aes(x=reorder(seed_rule_short, fac_ss_inc_mean),
+                      y=fac_ss_inc_mean, fill=tier)) +
+  geom_violin(position=position_dodge(0.8), alpha=0.55,
+              trim=TRUE, scale="width") +
+  geom_boxplot(position=position_dodge(0.8), width=0.12,
+               outlier.shape=NA, fill="white",
+               colour="grey30", linewidth=0.6) +
+  geom_jitter(aes(colour=tier),
+              position=position_jitterdodge(jitter.width=0.07,
+                                             dodge.width=0.8),
+              size=1.5, alpha=0.55) +
+  scale_fill_manual(values=tier_pal,   name="Tier") +
+  scale_colour_manual(values=tier_pal, name="Tier", guide="none") +
+  coord_flip() +
+  labs(title="Facility-level mean steady-state incidence by seed rule (last 30 days)",
+       subtitle="mean(new_inf[h]/N_loc[h] x 1000) unweighted across hospitals | each dot = 1 simulation",
+       x=NULL, y="Facility-level mean incidence (per 1,000 patient-days)") +
+  theme_arc()
+```
+
+## 2.3 National vs facility-level incidence — seeding type comparison
+
+```{r inc-compare, fig.height=5}
+df_alive %>%
+  select(tier, seed_type,
+         `National (bed-weighted)`   = net_ss_inc,
+         `Facility-level (unweighted)` = fac_ss_inc_mean) %>%
+  pivot_longer(c(`National (bed-weighted)`,
+                  `Facility-level (unweighted)`),
+               names_to="scale", values_to="inc") %>%
+  ggplot(aes(x=tier, y=inc, fill=seed_type)) +
+  geom_violin(position=position_dodge(0.8), alpha=0.55,
+              trim=TRUE, scale="width") +
+  geom_boxplot(position=position_dodge(0.8), width=0.1,
+               outlier.shape=NA, fill="white",
+               colour="grey30", linewidth=0.6) +
+  scale_fill_manual(values=type_pal, name="Seeding type") +
+  facet_wrap(~scale) +
+  labs(title="National vs facility-level incidence: does seeding type matter?",
+       subtitle="Last 30 days | left = bed-weighted | right = unweighted",
+       x="Tier", y="Incidence (per 1,000 patient-days)") +
+  theme_arc() +
+  theme(legend.position="bottom")
+```
+
+## 2.4 Cumulative incidence over 730 days
+
+```{r cumul-inc, fig.height=4}
+df_alive %>%
+  group_by(tier, seed_type) %>%
+  summarise(mn=mean(net_cumulative_inc),
+            sd=sd(net_cumulative_inc), .groups="drop") %>%
+  ggplot(aes(x=tier, y=mn, fill=seed_type)) +
+  geom_col(position=position_dodge(0.7), width=0.6, alpha=0.88) +
+  geom_errorbar(aes(ymin=mn-sd, ymax=mn+sd),
+                position=position_dodge(0.7),
+                width=0.25, linewidth=0.8) +
+  scale_fill_manual(values=type_pal, name="Seeding type") +
+  labs(title="Cumulative incidence over 730 days by tier and seeding type",
+       subtitle="Mean daily rate over all 730 days | +/-1 SD",
+       x="Tier", y="Cumulative incidence (per 1,000 patient-days)") +
+  theme_arc()
+```
+
+---
+
+# Part 3 — Prevalence (capped at 100%)
+
+> **Methodological note:** values above 100% are a simulation artifact — inter-hospital transfers can temporarily overfill a hospital's bed capacity, causing `I_loc > beds[h]`. All values are capped at 100% below. Incidence (Part 2) is not affected by this issue and remains the primary outcome.
+
+## 3.1 National prevalence — violin + box
+
+```{r net-prev-violin, fig.height=5.5}
+ggplot(df_alive,
+       aes(x=reorder(seed_rule_short, net_ss_prev_capped),
+           y=net_ss_prev_capped, fill=tier)) +
+  geom_violin(position=position_dodge(0.8), alpha=0.55,
+              trim=TRUE, scale="width") +
+  geom_boxplot(position=position_dodge(0.8), width=0.12,
+               outlier.shape=NA, fill="white",
+               colour="grey30", linewidth=0.6) +
+  geom_jitter(aes(colour=tier),
+              position=position_jitterdodge(jitter.width=0.07,
+                                             dodge.width=0.8),
+              size=1.5, alpha=0.55) +
+  scale_fill_manual(values=tier_pal,   name="Tier") +
+  scale_colour_manual(values=tier_pal, name="Tier", guide="none") +
+  scale_y_continuous(labels=function(x) paste0(x,"%"),
+                     limits=c(0, 105)) +
+  coord_flip() +
+  labs(title="National steady-state prevalence by seed rule (last 30 days, capped at 100%)",
+       subtitle="sum(I_loc)/total_beds x 100 | each dot = 1 simulation",
+       x=NULL, y="Network prevalence (%)") +
+  theme_arc()
+```
+
+## 3.2 Facility-level prevalence — violin + box
+
+```{r fac-prev-violin, fig.height=5.5}
+ggplot(df_alive,
+       aes(x=reorder(seed_rule_short, fac_ss_prev_capped),
+           y=fac_ss_prev_capped, fill=tier)) +
+  geom_violin(position=position_dodge(0.8), alpha=0.55,
+              trim=TRUE, scale="width") +
+  geom_boxplot(position=position_dodge(0.8), width=0.12,
+               outlier.shape=NA, fill="white",
+               colour="grey30", linewidth=0.6) +
+  geom_jitter(aes(colour=tier),
+              position=position_jitterdodge(jitter.width=0.07,
+                                             dodge.width=0.8),
+              size=1.5, alpha=0.55) +
+  scale_fill_manual(values=tier_pal,   name="Tier") +
+  scale_colour_manual(values=tier_pal, name="Tier", guide="none") +
+  scale_y_continuous(labels=function(x) paste0(x,"%"),
+                     limits=c(0, 105)) +
+  coord_flip() +
+  labs(title="Facility-level mean prevalence by seed rule (last 30 days, capped at 100%)",
+       subtitle="mean(I_loc/beds) x 100 | each dot = 1 simulation",
+       x=NULL, y="Facility-level mean prevalence (%)") +
+  theme_arc()
+```
+
+---
+
+# Part 4 — Epidemic trajectories
+
+```{r traj-note, results='asis'}
+if (!has_traj)
+  cat("> Daily trajectories not available — place compiled RDS in COMPILED_DIR to enable epidemic curves.\n")
+```
+
+```{r traj-inc, eval=has_traj, fig.height=7}
+traj <- traj_raw %>%
+  mutate(
+    tier = factor(tier, levels=c("Low","Moderate")),
+    seed_type = factor(seed_type,
+                       levels=c("fixed","type_random"),
+                       labels=c("Network-central","Facility-type random")),
+    seed_rule_short = case_when(
+      grepl("betweenness", seed_rule) ~ "Network hub",
+      seed_rule == "random_MCO"       ~ "Random MCO",
+      seed_rule == "random_SSR"       ~ "Random SSR",
+      seed_rule == "random_MCO_SSR"   ~ "Random MCO/SSR",
+      TRUE                            ~ seed_rule
+    )
+  )
+
+traj_mean <- traj %>%
+  group_by(tier, seed_type, seed_rule_short, day) %>%
+  summarise(
+    mean_net_inc  = mean(net_inc,           na.rm=TRUE),
+    mean_fac_inc  = mean(fac_inc_mean,      na.rm=TRUE),
+    mean_net_prev = pmin(mean(net_prev_pct, na.rm=TRUE), 100),
+    .groups="drop"
+  )
+
+Tmax_val <- max(traj$day)
+
+ggplot(traj_mean,
+       aes(x=day, y=mean_net_inc,
+           colour=seed_type, linetype=tier)) +
+  geom_line(linewidth=0.9) +
+  geom_vline(xintercept=Tmax_val-30, linetype="dotted",
+             colour="grey40", linewidth=0.6) +
+  scale_colour_manual(values=type_pal, name="Seeding type") +
+  scale_linetype_manual(values=c(Low="solid", Moderate="dashed"),
+                        name="Tier") +
+  facet_wrap(~seed_rule_short, ncol=2) +
+  labs(title="Epidemic trajectory — national incidence (mean across non-extinct reps)",
+       subtitle="Dotted line = start of SS measurement window (last 30 days)",
+       x="Day", y="Network incidence (per 1,000 patient-days)") +
+  theme_arc(bs=11) +
+  theme(legend.position="bottom")
+```
+
+```{r traj-fac, eval=has_traj, fig.height=7}
+ggplot(traj_mean,
+       aes(x=day, y=mean_fac_inc,
+           colour=seed_type, linetype=tier)) +
+  geom_line(linewidth=0.9) +
+  scale_colour_manual(values=type_pal, name="Seeding type") +
+  scale_linetype_manual(values=c(Low="solid", Moderate="dashed"),
+                        name="Tier") +
+  facet_wrap(~seed_rule_short, ncol=2) +
+  labs(title="Epidemic trajectory — facility-level mean incidence",
+       subtitle="Unweighted mean across hospitals, then mean across non-extinct reps",
+       x="Day", y="Facility-level mean incidence (per 1,000 patient-days)") +
+  theme_arc(bs=11) +
+  theme(legend.position="bottom")
+```
+
+---
+
+# Part 5 — Summary table
+
+```{r summary-table}
+tbl <- df %>%
+  group_by(Tier=tier, `Seed type`=seed_type,
+           `Seed rule`=seed_rule_short) %>%
+  summarise(
+    N               = n(),
+    `Extinct (%)`   = paste0(round(mean(ever_extinct)*100,1),"%"),
+    `SS (%)`        = paste0(round(mean(ss_reached, na.rm=TRUE)*100,1),"%"),
+    `Net SS inc\n/1k pd mean (SD)` = sprintf("%.2f (%.2f)",
+      mean(net_ss_inc[!ever_extinct], na.rm=TRUE),
+      sd(net_ss_inc[!ever_extinct],   na.rm=TRUE)),
+    `Fac SS inc\n/1k pd mean (SD)` = sprintf("%.2f (%.2f)",
+      mean(fac_ss_inc_mean[!ever_extinct], na.rm=TRUE),
+      sd(fac_ss_inc_mean[!ever_extinct],   na.rm=TRUE)),
+    `Net cumul inc\n/1k pd mean (SD)` = sprintf("%.2f (%.2f)",
+      mean(net_cumulative_inc[!ever_extinct], na.rm=TRUE),
+      sd(net_cumulative_inc[!ever_extinct],   na.rm=TRUE)),
+    `Net prev\n% mean (capped)` = sprintf("%.1f (%.1f)",
+      mean(net_ss_prev_capped[!ever_extinct], na.rm=TRUE),
+      sd(net_ss_prev_capped[!ever_extinct],   na.rm=TRUE)),
+    `Fac prev\n% mean (capped)` = sprintf("%.1f (%.1f)",
+      mean(fac_ss_prev_capped[!ever_extinct], na.rm=TRUE),
+      sd(fac_ss_prev_capped[!ever_extinct],   na.rm=TRUE)),
+    .groups="drop"
+  )
+
+tbl %>%
+  kable(caption=paste0(
+    "Mean (SD) across non-extinct reps. ",
+    "Net = national bed-weighted. Fac = facility-level unweighted. ",
+    "SS = last 30 days. Cumul = 730-day mean. Prev capped at 100%.")) %>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),
+                full_width=TRUE, font_size=11) %>%
+  collapse_rows(columns=1:2, valign="top")
+```
+
+---
+
+# Part 6 — Abstract results paragraph
+
+```{r abstract-stats}
+a <- df_alive %>%
+  group_by(tier, seed_type) %>%
+  summarise(
+    mn_net_inc = round(mean(net_ss_inc),        3),
+    sd_net_inc = round(sd(net_ss_inc),          3),
+    mn_fac_inc = round(mean(fac_ss_inc_mean),   3),
+    sd_fac_inc = round(sd(fac_ss_inc_mean),     3),
+    mn_cumul   = round(mean(net_cumulative_inc), 3),
+    .groups="drop"
+  )
+
+ext_t <- df %>%
+  group_by(tier) %>%
+  summarise(pct=round(mean(ever_extinct)*100,1), .groups="drop")
+
+pct_no_ss <- round(mean(!df_alive$ss_reached, na.rm=TRUE)*100,1)
+rel_diff  <- round(abs(mean(df_alive$net_ss_inc -
+                               df_alive$fac_ss_inc_mean)) /
+                     mean(df_alive$net_ss_inc) * 100, 1)
+
+get <- function(t, s, col) a[[col]][a$tier==t & a$seed_type==s]
+```
+
+```{r abstract-para, results='asis'}
+cat(sprintf(
+"**Suggested abstract results paragraph:**
+
+Among %d novel pathogen introductions (pi_vec = 0), extinction occurred in
+%.1f%% of Low-tier and %.1f%% of Moderate-tier simulations. Of non-extinct
+simulations, %.1f%% had not reached epidemic steady state by day 730 of the
+simulation, indicating ongoing epidemic growth throughout the 2-year window.
+Seeding location had minimal effect on the final endemic incidence level at
+either spatial scale: under the Low transmissibility tier, network-central
+introduction produced a mean national steady-state incidence of %.2f (SD %.2f)
+per 1,000 patient-days versus %.2f (SD %.2f) for random facility-type seeding,
+with corresponding facility-level incidences of %.2f (SD %.2f) and
+%.2f (SD %.2f) per 1,000 patient-days respectively. Under the Moderate tier,
+network-central and random seeding resulted in national incidences of
+%.2f (SD %.2f) and %.2f (SD %.2f) per 1,000 patient-days. National
+(bed-weighted) and facility-level (unweighted) incidence estimates agreed
+within a mean relative difference of %.1f%%, suggesting that the weighting
+scheme has limited influence on incidence comparisons in this network.
+Cumulative incidence over the 730-day window was %.2f and %.2f per 1,000
+patient-days under network-central and random seeding for the Moderate tier.",
+  nrow(df),
+  ext_t$pct[ext_t$tier=="Low"],
+  ext_t$pct[ext_t$tier=="Moderate"],
+  pct_no_ss,
+  get("Low","Network-central","mn_net_inc"),
+  get("Low","Network-central","sd_net_inc"),
+  get("Low","Facility-type random","mn_net_inc"),
+  get("Low","Facility-type random","sd_net_inc"),
+  get("Low","Network-central","mn_fac_inc"),
+  get("Low","Network-central","sd_fac_inc"),
+  get("Low","Facility-type random","mn_fac_inc"),
+  get("Low","Facility-type random","sd_fac_inc"),
+  get("Moderate","Network-central","mn_net_inc"),
+  get("Moderate","Network-central","sd_net_inc"),
+  get("Moderate","Facility-type random","mn_net_inc"),
+  get("Moderate","Facility-type random","sd_net_inc"),
+  rel_diff,
+  get("Moderate","Network-central","mn_cumul"),
+  get("Moderate","Facility-type random","mn_cumul")
+))
+```
+
+---
+
+# Part 7 — Export reportable dataset
+
+```{r export}
+report_df <- df %>%
+  group_by(tier, seed_type, seed_rule=seed_rule_short) %>%
+  summarise(
+    n_total              = n(),
+    n_alive              = sum(!ever_extinct),
+    pct_extinct          = round(mean(ever_extinct)*100,            1),
+    pct_ss_reached       = round(mean(ss_reached, na.rm=TRUE)*100,  1),
+    mean_net_ss_inc      = round(mean(net_ss_inc[!ever_extinct],        na.rm=TRUE), 4),
+    sd_net_ss_inc        = round(sd(net_ss_inc[!ever_extinct],          na.rm=TRUE), 4),
+    mean_fac_ss_inc      = round(mean(fac_ss_inc_mean[!ever_extinct],   na.rm=TRUE), 4),
+    sd_fac_ss_inc        = round(sd(fac_ss_inc_mean[!ever_extinct],     na.rm=TRUE), 4),
+    mean_net_cumul_inc   = round(mean(net_cumulative_inc[!ever_extinct], na.rm=TRUE), 4),
+    sd_net_cumul_inc     = round(sd(net_cumulative_inc[!ever_extinct],   na.rm=TRUE), 4),
+    mean_net_prev_capped = round(mean(net_ss_prev_capped[!ever_extinct], na.rm=TRUE), 2),
+    sd_net_prev_capped   = round(sd(net_ss_prev_capped[!ever_extinct],   na.rm=TRUE), 2),
+    mean_fac_prev_capped = round(mean(fac_ss_prev_capped[!ever_extinct], na.rm=TRUE), 2),
+    sd_fac_prev_capped   = round(sd(fac_ss_prev_capped[!ever_extinct],   na.rm=TRUE), 2),
+    .groups="drop"
+  )
+
+write.csv(report_df,
+          file.path(OUT_DIR, "seeding_novel_report_table.csv"),
+          row.names=FALSE)
+
+report_df %>%
+  kable(caption="Saved to seeding_novel_report_table.csv") %>%
+  kable_styling(bootstrap_options=c("striped","condensed"),
+                full_width=TRUE, font_size=10)
+```
+
+---
+
+*`r format(Sys.time(),"%Y-%m-%d %H:%M")` | Sims: `r nrow(df)` | Non-extinct: `r nrow(df_alive)` (`r round((1-mean(df$ever_extinct))*100,1)`%) | SS reached: `r sum(df_alive$ss_reached, na.rm=TRUE)` of `r nrow(df_alive)`*

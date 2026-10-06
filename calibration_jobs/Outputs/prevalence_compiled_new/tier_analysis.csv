@@ -1,0 +1,3 @@
+"tier","inc_low","inc_high","n_reps","n_jobs","n_betas","best_beta","mean_beta","median_beta","ci_lo_95","ci_hi_95","mean_inc_ach","sd_inc_ach","ecdc_category","ecdc_examples"
+"Low",1.3,14.299,1110,10,14,0.04,0.05135,0.05,0.015,0.08,9.4792,3.5654,"low (>1-10%)","CRE France/Germany, VRE Scandinavia, MRSA low-burden N.EU"
+"Moderate",14.299,28.742,720,10,8,0.12,0.1025,0.1025,0.085,0.12,16.1252,0.972,"moderate (>10-20%)","MRSA moderate settings, ESBL-E Eastern EU"

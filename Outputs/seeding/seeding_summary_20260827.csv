@@ -1,0 +1,51 @@
+"sim_id";"seed_rule";"seed_type";"rep_id";"seed_hospital";"hospital_type";"region";"peak_infected";"day_of_peak";"peak_hospitals";"final_infected";"final_prevalence";"ever_extinct";"day_extinct"
+1;"highest_betweenness";"fixed";1;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;2
+2;"highest_betweenness";"fixed";2;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;19
+3;"highest_betweenness";"fixed";3;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;7
+4;"highest_betweenness";"fixed";4;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;2
+5;"highest_betweenness";"fixed";5;"750000523";"MCO";"Île-de-France";0;1;0;0;0;TRUE;1
+6;"highest_betweenness";"fixed";6;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;3
+7;"highest_betweenness";"fixed";7;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;7
+8;"highest_betweenness";"fixed";8;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;14
+9;"highest_betweenness";"fixed";9;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;7
+10;"highest_betweenness";"fixed";10;"750000523";"MCO";"Île-de-France";1;1;1;0;0;TRUE;11
+11;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";1;"750100125";"MCO/SSR";"Île-de-France";1;1;1;0;0;TRUE;137
+12;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";2;"750100125";"MCO/SSR";"Île-de-France";2;51;2;0;0;TRUE;72
+13;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";3;"750100125";"MCO/SSR";"Île-de-France";1;1;1;0;0;TRUE;32
+14;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";4;"750100125";"MCO/SSR";"Île-de-France";1;1;1;0;0;TRUE;20
+15;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";5;"750100125";"MCO/SSR";"Île-de-France";2;19;2;0;0;TRUE;124
+16;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";6;"750100125";"MCO/SSR";"Île-de-France";1;1;1;0;0;TRUE;31
+17;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";7;"750100125";"MCO/SSR";"Île-de-France";3;22;2;0;0;TRUE;156
+18;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";8;"750100125";"MCO/SSR";"Île-de-France";1;1;1;0;0;TRUE;11
+19;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";9;"750100125";"MCO/SSR";"Île-de-France";1;1;1;0;0;TRUE;7
+20;"highest_in_degree + highest_out_degree + largest_beds + largest_outgoing";"fixed";10;"750100125";"MCO/SSR";"Île-de-France";1;1;1;0;0;TRUE;18
+21;"random_MCO";"type_random";1;"680000874";"MCO";"Grand-Est";1;1;1;0;0;TRUE;4
+22;"random_MCO";"type_random";2;"340780667";"MCO";"Occitanie";1;1;1;0;0;TRUE;22
+23;"random_MCO";"type_random";3;"920300837";"MCO";"Île-de-France";1;1;1;0;0;TRUE;119
+24;"random_MCO";"type_random";4;"2B0005359";"MCO";"Corse";1;1;1;0;0;TRUE;9
+25;"random_MCO";"type_random";5;"930817333";"MCO";"Île-de-France";1;1;1;0;0;TRUE;13
+26;"random_MCO";"type_random";6;"220005599";"MCO";"Bretagne";1;1;1;0;0;TRUE;3
+27;"random_MCO";"type_random";7;"770300143";"MCO";"Île-de-France";1;1;1;0;0;TRUE;24
+28;"random_MCO";"type_random";8;"020001061";"MCO";"Hauts-de-France";1;1;1;0;0;TRUE;15
+29;"random_MCO";"type_random";9;"340000207";"MCO";"Occitanie";1;1;1;0;0;TRUE;7
+30;"random_MCO";"type_random";10;"600100168";"MCO";"Hauts-de-France";1;1;1;0;0;TRUE;9
+31;"random_MCO_SSR";"type_random";1;"760000356";"MCO/SSR";"Normandie";2;46;2;0;0;TRUE;54
+32;"random_MCO_SSR";"type_random";2;"240000521";"MCO/SSR";"Nouvelle-Aquitaine";1;1;1;0;0;TRUE;70
+33;"random_MCO_SSR";"type_random";3;"760000026";"MCO/SSR";"Normandie";1;1;1;0;0;TRUE;19
+34;"random_MCO_SSR";"type_random";4;"350000147";"MCO/SSR";"Bretagne";1;1;1;0;0;TRUE;29
+35;"random_MCO_SSR";"type_random";5;"550000202";"MCO/SSR";"Grand-Est";1;1;1;0;0;TRUE;18
+36;"random_MCO_SSR";"type_random";6;"060791811";"MCO/SSR";"Provence-Alpes-Côte d'Azur";1;1;1;0;0;TRUE;2
+37;"random_MCO_SSR";"type_random";7;"530031962";"MCO/SSR";"Pays de la Loire";1;1;1;0;0;TRUE;90
+38;"random_MCO_SSR";"type_random";8;"500026307";"MCO/SSR";"Normandie";1;1;1;0;0;TRUE;209
+39;"random_MCO_SSR";"type_random";9;"330780206";"MCO/SSR";"Nouvelle-Aquitaine";3;68;3;0;0;TRUE;285
+40;"random_MCO_SSR";"type_random";10;"140002452";"MCO/SSR";"Normandie";2;7;1;0;0;TRUE;70
+41;"random_SSR";"type_random";1;"370000341";"SSR";"Centre-Val de Loire";1;1;1;0;0;TRUE;184
+42;"random_SSR";"type_random";2;"380017095";"SSR";"Auvergne-Rhône-Alpes";2;40;1;0;0;TRUE;151
+43;"random_SSR";"type_random";3;"630780526";"SSR";"Auvergne-Rhône-Alpes";1;1;1;0;0;TRUE;46
+44;"random_SSR";"type_random";4;"750042830";"SSR";"Île-de-France";1;1;1;0;0;TRUE;9
+45;"random_SSR";"type_random";5;"140019175";"SSR";"Normandie";1;1;1;0;0;TRUE;20
+46;"random_SSR";"type_random";6;"290000686";"SSR";"Bretagne";1;1;1;0;0;TRUE;52
+47;"random_SSR";"type_random";7;"750032229";"SSR";"Île-de-France";1;1;1;0;0;TRUE;60
+48;"random_SSR";"type_random";8;"910009919";"SSR";"Île-de-France";1;1;1;0;0;TRUE;90
+49;"random_SSR";"type_random";9;"850000399";"SSR";"Pays de la Loire";1;1;1;0;0;TRUE;19
+50;"random_SSR";"type_random";10;"340017771";"SSR";"Occitanie";1;1;1;0;0;TRUE;6

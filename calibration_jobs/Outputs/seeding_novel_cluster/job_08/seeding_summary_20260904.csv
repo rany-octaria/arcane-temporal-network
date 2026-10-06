@@ -1,0 +1,121 @@
+"sim_id","seed_rule","seed_type","tier","rep_id","seed_hospital","ever_extinct","peak_n_hosp_inf","net_cumulative_inc","fac_cumulative_inc_mean","net_ss_inc","fac_ss_inc_mean","net_ss_prev_pct","fac_ss_prev_mean_pct","net_final_prev_pct","fac_final_prev_mean_pct","hospital_type","region","in_degree","out_degree","betweenness","no_beds","pi_vec_val","mean_beta","beta_sd"
+1,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",1,"750100125",FALSE,145,0.0715,0.0399,0.2228,0.1348,0.6693,0.3565,0.7382,0.3955,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+2,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",2,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+3,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",3,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+4,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",4,"750100125",TRUE,3,1e-04,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+5,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",5,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+6,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",6,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+7,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",7,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+8,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",8,"750100125",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+9,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",9,"750100125",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+10,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",10,"750100125",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+11,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",11,"750100125",TRUE,5,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+12,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",12,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+13,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",13,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+14,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",14,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+15,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Low",15,"750100125",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.0549,0.0127551020408163
+16,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",1,"750100125",FALSE,1533,2.0081,1.768,6.5327,6.2499,13.5225,12.9361,15.2179,14.2377,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+17,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",2,"750100125",FALSE,1729,2.4076,2.1562,7.5662,7.3862,15.7649,15.4795,17.6179,16.9108,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+18,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",3,"750100125",FALSE,1711,2.4329,2.1729,7.5925,7.3973,15.7112,15.2933,17.6996,16.8275,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+19,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",4,"750100125",FALSE,1523,1.8685,1.6393,6.4432,6.2265,13.4035,12.9152,15.0665,14.2384,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+20,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",5,"750100125",FALSE,1610,2.1444,1.9326,6.8156,6.6091,14.1699,13.8282,15.9626,15.2297,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+21,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",6,"750100125",TRUE,4,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+22,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",7,"750100125",FALSE,1311,1.4683,1.2376,5.2477,4.8709,11.0974,10.2528,12.4842,11.2963,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+23,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",8,"750100125",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+24,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",9,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+25,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",10,"750100125",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+26,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",11,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+27,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",12,"750100125",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+28,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",13,"750100125",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+29,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",14,"750100125",FALSE,1588,2.1905,1.9063,6.661,6.5111,13.9003,13.4653,15.6037,14.8531,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+30,"highest_betweenness + highest_in_degree + highest_out_degree + largest_beds + largest_outgoing","fixed","Moderate",15,"750100125",FALSE,1710,2.4439,2.2487,7.5784,7.6126,15.7544,15.7273,17.7808,17.3929,"MCO/SSR","Île-de-France",420,433,249789.64473682,1713,0,0.102,0.00892857142857143
+31,"random_MCO","type_random","Low",1,"930100045",TRUE,5,0,0,0,0,0,0,0,0,"MCO","Île-de-France",52,63,4115.4314053545,142,0,0.0549,0.0127551020408163
+32,"random_MCO","type_random","Low",2,"940300270",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Île-de-France",97,117,8259.44121210432,136,0,0.0549,0.0127551020408163
+33,"random_MCO","type_random","Low",3,"630781821",FALSE,48,0.0254,0.0308,0.0486,0.0586,0.1476,0.171,0.1527,0.1757,"MCO","Auvergne-Rhône-Alpes",12,16,864.217404853553,31,0,0.0549,0.0127551020408163
+34,"random_MCO","type_random","Low",4,"720017839",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Pays de la Loire",8,10,2530.19373569718,148,0,0.0549,0.0127551020408163
+35,"random_MCO","type_random","Low",5,"310025333",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Occitanie",59,54,9012.81567025291,119,0,0.0549,0.0127551020408163
+36,"random_MCO","type_random","Low",6,"910813963",TRUE,4,0,0,0,0,0,0,0,0,"MCO","Île-de-France",4,9,638.061888577214,148,0,0.0549,0.0127551020408163
+37,"random_MCO","type_random","Low",7,"130784481",TRUE,9,1e-04,1e-04,0,0,0,0,0,0,"MCO","Provence-Alpes-Côte d'Azur",46,44,48266.4102997579,148,0,0.0549,0.0127551020408163
+38,"random_MCO","type_random","Low",8,"070000013",TRUE,3,1e-04,6e-04,0,0,0,0,0,0,"MCO","Auvergne-Rhône-Alpes",30,49,4288.77562299278,108,0,0.0549,0.0127551020408163
+39,"random_MCO","type_random","Low",9,"270000326",TRUE,5,1e-04,2e-04,0,0,0,0,0,0,"MCO","Normandie",32,43,3841.97220694873,74,0,0.0549,0.0127551020408163
+40,"random_MCO","type_random","Low",10,"830100418",FALSE,19,0.0056,0.007,0.013,0.0139,0.0396,0.0436,0.0419,0.0454,"MCO","Provence-Alpes-Côte d'Azur",3,11,315.290274875471,27,0,0.0549,0.0127551020408163
+41,"random_MCO","type_random","Low",11,"330782582",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Nouvelle-Aquitaine",35,60,4310.64028447764,123,0,0.0549,0.0127551020408163
+42,"random_MCO","type_random","Low",12,"130783327",TRUE,3,0,0,0,0,0,0,0,0,"MCO","Provence-Alpes-Côte d'Azur",51,75,6470.24605666048,143,0,0.0549,0.0127551020408163
+43,"random_MCO","type_random","Low",13,"330000662",FALSE,30,0.0116,0.0092,0.0451,0.0275,0.1383,0.0799,0.1562,0.0909,"MCO","Nouvelle-Aquitaine",78,78,14462.575149977,139,0,0.0549,0.0127551020408163
+44,"random_MCO","type_random","Low",14,"760780205",FALSE,75,0.0472,0.0384,0.1163,0.0903,0.3304,0.2388,0.361,0.2502,"MCO","Normandie",0,5,0,25,0,0.0549,0.0127551020408163
+45,"random_MCO","type_random","Low",15,"150003416",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Auvergne-Rhône-Alpes",2,2,63.3661097907053,148,0,0.0549,0.0127551020408163
+46,"random_MCO","type_random","Moderate",1,"660780776",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Occitanie",4,15,33.5306361883889,30,0,0.102,0.00892857142857143
+47,"random_MCO","type_random","Moderate",2,"560006348",TRUE,4,1e-04,0,0,0,0,0,0,0,"MCO","Bretagne",6,9,221.970734064726,148,0,0.102,0.00892857142857143
+48,"random_MCO","type_random","Moderate",3,"920000684",TRUE,4,0,0,0,0,0,0,0,0,"MCO","Île-de-France",211,217,84039.0470088496,215,0,0.102,0.00892857142857143
+49,"random_MCO","type_random","Moderate",4,"430000109",FALSE,1774,2.1533,1.9737,7.7389,7.6009,15.9976,15.6129,18.0259,17.2081,"MCO","Auvergne-Rhône-Alpes",13,18,113.778674329169,48,0,0.102,0.00892857142857143
+50,"random_MCO","type_random","Moderate",5,"300002508",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Occitanie",1,4,0,148,0,0.102,0.00892857142857143
+51,"random_MCO","type_random","Moderate",6,"570000117",TRUE,2,0,0,0,0,0,0,0,0,"MCO","Grand-Est",25,42,24718.8001569186,159,0,0.102,0.00892857142857143
+52,"random_MCO","type_random","Moderate",7,"910000330",FALSE,1867,2.9321,2.7493,8.5292,8.7813,17.8171,18.415,19.7691,19.9357,"MCO","Île-de-France",3,12,197.741386150056,16,0,0.102,0.00892857142857143
+53,"random_MCO","type_random","Moderate",8,"780300414",FALSE,1324,1.3989,1.2087,5.3306,4.972,10.9177,10.2695,12.4212,11.352,"MCO","Île-de-France",59,80,2678.99565196189,132,0,0.102,0.00892857142857143
+54,"random_MCO","type_random","Moderate",9,"720023068",TRUE,3,1e-04,1e-04,0,0,0,0,0,0,"MCO","Pays de la Loire",22,20,1940.71934678069,36,0,0.102,0.00892857142857143
+55,"random_MCO","type_random","Moderate",10,"830000279",FALSE,390,0.2371,0.2056,1.0921,0.9773,2.3482,2.1274,2.7113,2.4133,"MCO","Provence-Alpes-Côte d'Azur",32,83,3752.26517600193,149,0,0.102,0.00892857142857143
+56,"random_MCO","type_random","Moderate",11,"490009008",TRUE,3,0,0,0,0,0,0,0,0,"MCO","Pays de la Loire",2,4,1893.42331304317,148,0,0.102,0.00892857142857143
+57,"random_MCO","type_random","Moderate",12,"140018730",FALSE,1446,1.9351,1.75,6.2273,5.9604,13.0396,12.5631,14.6823,13.7258,"MCO","Normandie",24,22,740.930789071478,43,0,0.102,0.00892857142857143
+58,"random_MCO","type_random","Moderate",13,"780300414",TRUE,5,0,0,0,0,0,0,0,0,"MCO","Île-de-France",59,80,2678.99565196189,132,0,0.102,0.00892857142857143
+59,"random_MCO","type_random","Moderate",14,"680000494",TRUE,4,2e-04,3e-04,0,0,0,0,0,0,"MCO","Grand-Est",23,27,204.927924005043,167,0,0.102,0.00892857142857143
+60,"random_MCO","type_random","Moderate",15,"590817458",TRUE,1,0,0,0,0,0,0,0,0,"MCO","Hauts-de-France",14,19,4101.67999326231,49,0,0.102,0.00892857142857143
+61,"random_MCO_SSR","type_random","Low",1,"300000023",TRUE,4,4e-04,4e-04,0,0,0,0,0,0,"MCO/SSR","Occitanie",41,77,14339.939950619,345,0,0.0549,0.0127551020408163
+62,"random_MCO_SSR","type_random","Low",2,"350000162",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Bretagne",28,50,3885.31130153684,189,0,0.0549,0.0127551020408163
+63,"random_MCO_SSR","type_random","Low",3,"690784178",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Auvergne-Rhône-Alpes",126,154,42812.3360326842,278,0,0.0549,0.0127551020408163
+64,"random_MCO_SSR","type_random","Low",4,"910300326",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",64,50,2821.68043806543,78,0,0.0549,0.0127551020408163
+65,"random_MCO_SSR","type_random","Low",5,"070000484",TRUE,4,1e-04,1e-04,0,0,0,0,0,0,"MCO/SSR","Auvergne-Rhône-Alpes",52,24,1873.76055945712,127,0,0.0549,0.0127551020408163
+66,"random_MCO_SSR","type_random","Low",6,"340782085",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Occitanie",100,136,49270.7729649296,261,0,0.0549,0.0127551020408163
+67,"random_MCO_SSR","type_random","Low",7,"690000427",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Auvergne-Rhône-Alpes",68,73,40535.6061166682,328,0,0.0549,0.0127551020408163
+68,"random_MCO_SSR","type_random","Low",8,"020000519",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Hauts-de-France",56,63,11846.1016092958,364,0,0.0549,0.0127551020408163
+69,"random_MCO_SSR","type_random","Low",9,"010005239",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Auvergne-Rhône-Alpes",25,40,970.86150110057,131,0,0.0549,0.0127551020408163
+70,"random_MCO_SSR","type_random","Low",10,"080000219",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Grand-Est",11,19,277.866997012034,96,0,0.0549,0.0127551020408163
+71,"random_MCO_SSR","type_random","Low",11,"300782141",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Occitanie",50,30,8551.19172916999,202,0,0.0549,0.0127551020408163
+72,"random_MCO_SSR","type_random","Low",12,"050000041",FALSE,63,0.0265,0.0238,0.0832,0.075,0.249,0.2044,0.263,0.22,"MCO/SSR","Provence-Alpes-Côte d'Azur",38,17,4210.42729124735,146,0,0.0549,0.0127551020408163
+73,"random_MCO_SSR","type_random","Low",13,"310780366",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Occitanie",51,37,5957.1426189837,220,0,0.0549,0.0127551020408163
+74,"random_MCO_SSR","type_random","Low",14,"080000219",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Grand-Est",11,19,277.866997012034,96,0,0.0549,0.0127551020408163
+75,"random_MCO_SSR","type_random","Low",15,"810000547",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Occitanie",10,10,749.218507578356,60,0,0.0549,0.0127551020408163
+76,"random_MCO_SSR","type_random","Moderate",1,"310026927",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Occitanie",66,101,16256.5091157764,335,0,0.102,0.00892857142857143
+77,"random_MCO_SSR","type_random","Moderate",2,"560000192",TRUE,4,0,0,0,0,0,0,0,0,"MCO/SSR","Bretagne",18,44,5741.29654708672,188,0,0.102,0.00892857142857143
+78,"random_MCO_SSR","type_random","Moderate",3,"940100035",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Île-de-France",68,47,9007.85106895174,268,0,0.102,0.00892857142857143
+79,"random_MCO_SSR","type_random","Moderate",4,"790003537",TRUE,4,1e-04,0,0,0,0,0,0,0,"MCO/SSR","Nouvelle-Aquitaine",6,4,1542.5442657087,36,0,0.102,0.00892857142857143
+80,"random_MCO_SSR","type_random","Moderate",5,"130811102",FALSE,1013,0.6982,0.6682,3.2149,3.1146,6.3753,6.1935,7.5654,7.1203,"MCO/SSR","Provence-Alpes-Côte d'Azur",33,12,1251.07112751039,26,0,0.102,0.00892857142857143
+81,"random_MCO_SSR","type_random","Moderate",6,"850000241",FALSE,877,0.7147,0.6015,3.4638,3.0511,6.9479,6.04,8.0292,6.8963,"MCO/SSR","Pays de la Loire",24,55,8325.67027686743,251,0,0.102,0.00892857142857143
+82,"random_MCO_SSR","type_random","Moderate",7,"850000142",FALSE,1093,0.929,0.8109,4.2927,3.9475,8.6931,7.9316,9.9862,8.9645,"MCO/SSR","Pays de la Loire",84,126,76616.503960439,847,0,0.102,0.00892857142857143
+83,"random_MCO_SSR","type_random","Moderate",8,"130784051",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Provence-Alpes-Côte d'Azur",125,138,25436.5938577102,384,0,0.102,0.00892857142857143
+84,"random_MCO_SSR","type_random","Moderate",9,"760805770",FALSE,658,0.4429,0.3801,2.36,2.0431,4.7497,4.0154,5.6057,4.7113,"MCO/SSR","Normandie",65,86,43656.4603045314,701,0,0.102,0.00892857142857143
+85,"random_MCO_SSR","type_random","Moderate",10,"380000406",TRUE,2,0,0,0,0,0,0,0,0,"MCO/SSR","Auvergne-Rhône-Alpes",33,52,5011.42775822884,234,0,0.102,0.00892857142857143
+86,"random_MCO_SSR","type_random","Moderate",11,"520000068",TRUE,4,0,0,0,0,0,0,0,0,"MCO/SSR","Grand-Est",39,52,15078.4199949822,227,0,0.102,0.00892857142857143
+87,"random_MCO_SSR","type_random","Moderate",12,"540000270",FALSE,382,0.1974,0.2074,1.0181,0.9875,1.7342,1.7456,2.1036,1.9951,"MCO/SSR","Grand-Est",8,5,22.021397550555,28,0,0.102,0.00892857142857143
+88,"random_MCO_SSR","type_random","Moderate",13,"500002357",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Normandie",7,6,34.3154761904762,77,0,0.102,0.00892857142857143
+89,"random_MCO_SSR","type_random","Moderate",14,"140000027",TRUE,1,0,0,0,0,0,0,0,0,"MCO/SSR","Normandie",32,70,9597.14341202294,315,0,0.102,0.00892857142857143
+90,"random_MCO_SSR","type_random","Moderate",15,"110000056",TRUE,3,0,0,0,0,0,0,0,0,"MCO/SSR","Occitanie",44,102,20364.3773971932,306,0,0.102,0.00892857142857143
+91,"random_SSR","type_random","Low",1,"600100671",TRUE,2,0,0,0,0,0,0,0,0,"SSR","Hauts-de-France",48,16,4494.88224758698,143,0,0.0549,0.0127551020408163
+92,"random_SSR","type_random","Low",2,"760802439",TRUE,2,0,0,0,0,0,0,0,0,"SSR","Normandie",1,1,0,34,0,0.0549,0.0127551020408163
+93,"random_SSR","type_random","Low",3,"910800986",FALSE,128,0.0683,0.0423,0.1826,0.1195,0.564,0.3678,0.6114,0.3958,"SSR","Île-de-France",23,15,684.620772387423,54,0,0.0549,0.0127551020408163
+94,"random_SSR","type_random","Low",4,"130782451",FALSE,17,0.0077,0.0058,0.0105,0.008,0.0243,0.0196,0.0227,0.0183,"SSR","Provence-Alpes-Côte d'Azur",56,32,3177.33186755783,144,0,0.0549,0.0127551020408163
+95,"random_SSR","type_random","Low",5,"750825184",TRUE,2,0,0,0,0,0,0,0,0,"SSR","Île-de-France",16,4,180.876790325728,262,0,0.0549,0.0127551020408163
+96,"random_SSR","type_random","Low",6,"440024669",FALSE,9,0.0033,0.0045,0.0053,0.0072,0.0124,0.0177,0.0139,0.0202,"SSR","Pays de la Loire",26,12,1332.1735249214,82,0,0.0549,0.0127551020408163
+97,"random_SSR","type_random","Low",7,"130786296",TRUE,1,0,0,0,0,0,0,0,0,"SSR","Provence-Alpes-Côte d'Azur",44,33,1821.18867980303,104,0,0.0549,0.0127551020408163
+98,"random_SSR","type_random","Low",8,"380017095",FALSE,14,0.0063,0.0058,0.0071,0.006,0.0252,0.0219,0.0254,0.022,"SSR","Auvergne-Rhône-Alpes",43,10,1611.41279038331,159,0,0.0549,0.0127551020408163
+99,"random_SSR","type_random","Low",9,"620033712",FALSE,11,0.0022,0.0048,0.0014,0.0036,0.003,0.0079,0.0032,0.0067,"SSR","Hauts-de-France",8,4,237.271469633991,39,0,0.0549,0.0127551020408163
+100,"random_SSR","type_random","Low",10,"760920918",TRUE,1,0,0,0,0,0,0,0,0,"SSR","Normandie",17,12,848.772414087472,181,0,0.0549,0.0127551020408163
+101,"random_SSR","type_random","Low",11,"560027377",TRUE,1,0,0,0,0,0,0,0,0,"SSR","Bretagne",5,2,0,12,0,0.0549,0.0127551020408163
+102,"random_SSR","type_random","Low",12,"690000401",TRUE,1,0,0,0,0,0,0,0,0,"SSR","Auvergne-Rhône-Alpes",40,22,5474.34775553606,105,0,0.0549,0.0127551020408163
+103,"random_SSR","type_random","Low",13,"130048341",TRUE,2,0,0,0,0,0,0,0,0,"SSR","Provence-Alpes-Côte d'Azur",2,1,8.48898491158634,73,0,0.0549,0.0127551020408163
+104,"random_SSR","type_random","Low",14,"160012209",TRUE,3,0,0,0,0,0,0,0,0,"SSR","Nouvelle-Aquitaine",19,7,490.940027637938,38,0,0.0549,0.0127551020408163
+105,"random_SSR","type_random","Low",15,"760000380",TRUE,3,0,0,0,0,0,0,0,0,"SSR","Normandie",14,8,461.746429186947,22,0,0.0549,0.0127551020408163
+106,"random_SSR","type_random","Moderate",1,"670000348",FALSE,327,0.2183,0.2317,0.8392,0.8293,1.4647,1.5318,1.7565,1.733,"SSR","Grand-Est",12,7,356.048466822779,64,0,0.102,0.00892857142857143
+107,"random_SSR","type_random","Moderate",2,"780420022",FALSE,1554,1.7002,1.5069,6.4703,6.2962,13.274,12.8474,15.0569,14.2701,"SSR","Île-de-France",64,20,2226.63525239868,179,0,0.102,0.00892857142857143
+108,"random_SSR","type_random","Moderate",3,"290000983",FALSE,338,0.0915,0.0643,0.7739,0.487,1.2088,0.8188,1.6981,1.0798,"SSR","Bretagne",13,5,35.4825013596111,57,0,0.102,0.00892857142857143
+109,"random_SSR","type_random","Moderate",4,"280000431",TRUE,1,0,0,0,0,0,0,0,0,"SSR","Centre-Val de Loire",23,9,335.624431751682,66,0,0.102,0.00892857142857143
+110,"random_SSR","type_random","Moderate",5,"830100624",FALSE,1490,1.3583,1.3355,5.7436,5.6342,11.547,11.3532,13.2756,12.7288,"SSR","Provence-Alpes-Côte d'Azur",53,26,6019.56357917479,313,0,0.102,0.00892857142857143
+111,"random_SSR","type_random","Moderate",6,"580971349",TRUE,3,0,0,0,0,0,0,0,0,"SSR","Bourgogne-Franche-Comté",34,16,1393.29874045487,83,0,0.102,0.00892857142857143
+112,"random_SSR","type_random","Moderate",7,"680020427",TRUE,4,1e-04,1e-04,0,0,0,0,0,0,"SSR","Grand-Est",11,4,2201.30090840604,27,0,0.102,0.00892857142857143
+113,"random_SSR","type_random","Moderate",8,"310780234",FALSE,414,0.2219,0.2484,1.0414,1.1909,2.0487,2.3632,2.4173,2.6906,"SSR","Occitanie",43,15,3202.80347180583,152,0,0.102,0.00892857142857143
+114,"random_SSR","type_random","Moderate",9,"130781834",FALSE,1402,1.2914,1.1133,5.5858,5.1107,11.6352,10.5772,13.2582,11.8963,"SSR","Provence-Alpes-Côte d'Azur",50,16,1576.60802111706,361,0,0.102,0.00892857142857143
+115,"random_SSR","type_random","Moderate",10,"620000067",TRUE,2,0,0,0,0,0,0,0,0,"SSR","Hauts-de-France",19,9,256.288573089102,23,0,0.102,0.00892857142857143
+116,"random_SSR","type_random","Moderate",11,"100007285",TRUE,1,0,0,0,0,0,0,0,0,"SSR","Grand-Est",30,6,5670.27451827504,260,0,0.102,0.00892857142857143
+117,"random_SSR","type_random","Moderate",12,"920300423",TRUE,4,0,0,0,0,0,0,0,0,"SSR","Île-de-France",61,33,1454.87531807604,128,0,0.102,0.00892857142857143
+118,"random_SSR","type_random","Moderate",13,"940030836",FALSE,1627,2.0495,1.7755,6.9225,6.6257,14.2346,13.7182,16.0715,15.1219,"SSR","Île-de-France",7,9,28.3653716166874,77,0,0.102,0.00892857142857143
+119,"random_SSR","type_random","Moderate",14,"950150011",FALSE,1445,1.7895,1.5457,5.9368,5.6006,12.3545,11.7506,13.9022,12.9218,"SSR","Île-de-France",64,28,2864.75358863334,282,0,0.102,0.00892857142857143
+120,"random_SSR","type_random","Moderate",15,"590000113",FALSE,480,0.3284,0.2801,1.5403,1.3015,2.9222,2.4567,3.4778,2.8122,"SSR","Hauts-de-France",29,13,194.667541584207,89,0,0.102,0.00892857142857143

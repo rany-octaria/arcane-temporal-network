@@ -1,0 +1,4 @@
+"tier","ecdc_category","prev_low_pct","prev_high_pct","inc_low","inc_high","los_network","factor_used","gamma","pi_vec_val","ecdc_examples"
+"Low","low (>1-10%)",1,10,1.3,14.299,9.29,0.14443,0.00258397932816537,0.001,"CRE France/Germany, VRE Scandinavia, MRSA low-burden N.EU"
+"Moderate","moderate (>10-20%)",10,20,14.299,28.742,9.29,0.14443,0.00258397932816537,0.001,"MRSA moderate settings, ESBL-E Eastern EU"
+"High","high (>20-30%)",20,30,28.742,43.185,9.29,0.14443,0.00258397932816537,0.001,"MRSA Greece/Romania, ESBL-E Southern/Eastern EU"
